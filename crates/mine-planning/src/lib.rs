@@ -4,7 +4,9 @@ mod benches;
 mod comparison;
 mod marvin;
 mod max_closure;
+mod phase_design;
 mod phases;
+mod pit_shells;
 mod precedence;
 mod pushback;
 mod scenario;
@@ -30,6 +32,13 @@ pub use precedence::{
 pub use max_closure::{
     MaxClosureArc, MaxClosureArcKind, MaxClosureGraph, MaxClosureNodeId, build_max_closure_graph,
     verify_closure,
+};
+pub use phase_design::{
+    NestingAccessRules, PhaseDesign, PushbackPlan, derive_pushbacks_from_nested_shells,
+};
+pub use pit_shells::{
+    PitShell, PitShellMetrics, PitShellSet, compute_pit_shell_metrics,
+    generate_nested_shells, generate_nested_shells_from_model, uniform_revenue_factors,
 };
 pub use pushback::{
     PushbackGenerationRules, PushbackPrototype, PushbackPrototypeReport, build_pushback_prototype,

@@ -1,0 +1,199 @@
+{
+  "dataset_dir": "datasets\\benchmarks\\marvin",
+  "reference_prec_path": "datasets\\benchmarks\\marvin\\marvin.prec",
+  "reference_upit_solution_path": "datasets\\benchmarks\\marvin\\marvin_upit.sol",
+  "value_column": "field_7",
+  "tonnage_column": "field_4",
+  "candidate_predecessor_offsets": [
+    [
+      -4,
+      -3,
+      5
+    ],
+    [
+      -4,
+      3,
+      5
+    ],
+    [
+      -3,
+      -4,
+      5
+    ],
+    [
+      -3,
+      4,
+      5
+    ],
+    [
+      -2,
+      -2,
+      3
+    ],
+    [
+      -2,
+      2,
+      3
+    ],
+    [
+      -1,
+      0,
+      1
+    ],
+    [
+      0,
+      -1,
+      1
+    ],
+    [
+      0,
+      0,
+      1
+    ],
+    [
+      0,
+      1,
+      1
+    ],
+    [
+      1,
+      0,
+      1
+    ],
+    [
+      2,
+      -2,
+      3
+    ],
+    [
+      2,
+      2,
+      3
+    ],
+    [
+      3,
+      -4,
+      5
+    ],
+    [
+      3,
+      4,
+      5
+    ],
+    [
+      4,
+      -3,
+      5
+    ],
+    [
+      4,
+      3,
+      5
+    ]
+  ],
+  "reference_precedence": {
+    "node_count": 53271,
+    "edge_count": 650631
+  },
+  "candidate_precedence": {
+    "node_count": 53271,
+    "edge_count": 650631
+  },
+  "precedence_comparison": {
+    "shared_nodes": 53271,
+    "shared_edges": 650631,
+    "reference_only_edge_count": 0,
+    "candidate_only_edge_count": 0,
+    "node_jaccard_index": 1.0,
+    "edge_jaccard_index": 1.0,
+    "reference_only_edge_examples": [],
+    "candidate_only_edge_examples": []
+  },
+  "reference_upit": {
+    "block_count": 8516,
+    "total_proc_profit_x_tonnage": 1157364258.1114736,
+    "total_economic_objective": 1415655436.1367428,
+    "total_tonnage": 527146593.8260307
+  },
+  "candidate_upit": {
+    "block_count": 13186,
+    "total_proc_profit_x_tonnage": 356618497.28039294,
+    "total_economic_objective": 1257385725.6420891,
+    "total_tonnage": 800633423.3399775
+  },
+  "upit_membership_comparison": {
+    "shared_blocks": 8516,
+    "reference_only_block_count": 0,
+    "candidate_only_block_count": 4670,
+    "jaccard_index": 0.6458364932504171,
+    "reference_only_block_examples": [],
+    "candidate_only_block_examples": [
+      1236,
+      1237,
+      1238,
+      1298,
+      1299,
+      1300,
+      1301,
+      1302,
+      1303,
+      1304
+    ]
+  },
+  "upit_metric_comparison": {
+    "shared_metrics": [
+      {
+        "metric": "block_count",
+        "reference_value": 8516.0,
+        "candidate_value": 13186.0,
+        "absolute_difference": 4670.0,
+        "relative_difference": 0.5483795209018318,
+        "absolute_tolerance": 0.0,
+        "relative_tolerance": 0.0,
+        "within_tolerance": false
+      },
+      {
+        "metric": "total_economic_objective",
+        "reference_value": 1415655436.1367428,
+        "candidate_value": 1257385725.6420891,
+        "absolute_difference": 158269710.4946537,
+        "relative_difference": 0.11179959929131082,
+        "absolute_tolerance": 0.0,
+        "relative_tolerance": 0.0,
+        "within_tolerance": false
+      },
+      {
+        "metric": "total_proc_profit_x_tonnage",
+        "reference_value": 1157364258.1114736,
+        "candidate_value": 356618497.28039294,
+        "absolute_difference": 800745760.8310807,
+        "relative_difference": 0.6918701309626545,
+        "absolute_tolerance": 0.0,
+        "relative_tolerance": 0.0,
+        "within_tolerance": false
+      },
+      {
+        "metric": "total_tonnage",
+        "reference_value": 527146593.8260307,
+        "candidate_value": 800633423.3399775,
+        "absolute_difference": 273486829.51394683,
+        "relative_difference": 0.518806026097938,
+        "absolute_tolerance": 0.0,
+        "relative_tolerance": 0.0,
+        "within_tolerance": false
+      }
+    ],
+    "reference_only_metrics": [],
+    "candidate_only_metrics": []
+  },
+  "assumptions": [
+    "marving-info.txt was used to confirm that field_4 is tonnage and field_7 is proc_profit ($/ton), and that mine_cost = 0.9 $/ton.",
+    "The candidate precedence template uses the 17-offset Marvin slope pattern (45°/8-niveles): 5 cross at dk=1, 4 diagonal corners at dk=3, 8 near-circle at dk=5.",
+    "total_economic_objective = sum((max(proc_profit, 0) - 0.9) × tonnage). Official UPIT target: 1,415,655,436."
+  ],
+  "limitations": [
+    "This benchmark does not yet normalize or compare CPIT, PCPSP or LP relaxation artifacts (pending MR-170).",
+    "UPIT comparison is against the existing positive-block-closure heuristic, not an exact maximum-closure solver (pending MR-155/MR-156).",
+    "The prec template was reverse-engineered from the reference file; formal proof of completeness against the MineLib algorithm is pending (pending MR-154)."
+  ]
+}

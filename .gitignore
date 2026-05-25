@@ -43,6 +43,7 @@ htmlcov/
 .mine-vfs/
 artifacts/
 outputs/
+!datasets/benchmarks/**/outputs/
 reports/generated/
 datasets/raw/
 datasets/tmp/

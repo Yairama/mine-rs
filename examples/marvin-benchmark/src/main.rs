@@ -1,7 +1,14 @@
 //! Ejemplo ejecutable para comparar referencias Marvin locales contra salidas actuales de `mine-rs`.
+//!
+//! Uso:
+//!   cargo run -p marvin-benchmark [dataset_dir] [output_path]
+//!
+//! Si no se especifican argumentos, el dataset se toma desde `datasets/benchmarks/marvin/`
+//! y el reporte se escribe en `datasets/benchmarks/marvin/outputs/comparison-report.json`.
 
 use std::collections::BTreeMap;
 use std::env;
+use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -78,6 +85,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nth(1)
         .map(PathBuf::from)
         .unwrap_or_else(|| repo_root.join("datasets").join("benchmarks").join("marvin"));
+    let output_path = env::args_os()
+        .nth(2)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| dataset_dir.join("outputs").join("comparison-report.json"));
     let blocks_path = dataset_dir.join("marvin.blocks");
     let prec_path = dataset_dir.join("marvin.prec");
     let upit_solution_path = dataset_dir.join("marvin_upit.sol");
@@ -203,7 +214,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ],
     };
 
-    println!("{}", serde_json::to_string_pretty(&output)?);
+    let json = serde_json::to_string_pretty(&output)?;
+
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&output_path, &json)?;
+    eprintln!("comparison report written to {}", output_path.display());
+
+    println!("{json}");
 
     Ok(())
 }

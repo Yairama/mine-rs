@@ -1,0 +1,125 @@
+{
+  "instance": "marvin",
+  "status": "partial",
+  "updated_from": "local repository state with staged Marvin references",
+  "coverage_matrix": [
+    {
+      "output": "blocks",
+      "reference_status": "staged-local-open",
+      "mine_rs_status": "reproduced",
+      "comparable_status": "yes",
+      "notes": [
+        "datasets/benchmarks/marvin/marvin.blocks is versioned locally",
+        "read_marvin_blocks(...) loads the instance into BlockModel",
+        "cargo run -p marvin-inspect emits a reproducible JSON summary"
+      ]
+    },
+    {
+      "output": "prec-external",
+      "reference_status": "staged-local-open",
+      "mine_rs_status": "normalized-and-compared",
+      "comparable_status": "yes",
+      "notes": [
+        "read_marvin_precedence_graph(...) normalizes marvin.prec into PrecedenceGraph using source_block_id -> linear_index mapping",
+        "datasets/benchmarks/marvin/comparison-report.json captures the current comparison against the open mine-rs precedence template",
+        "Current edge_jaccard_index versus the open mine-rs candidate is 0.37616098833286454"
+      ]
+    },
+    {
+      "output": "prec-internal",
+      "reference_status": "staged-local-open",
+      "mine_rs_status": "reproduced-and-compared",
+      "comparable_status": "yes-with-gap",
+      "notes": [
+        "build_block_precedence_graph(...) generates the current open candidate graph",
+        "The current open candidate uses one vertical predecessor plus four lateral predecessors one level above",
+        "The candidate reproduces all nodes but only 244742 of 650631 external edges"
+      ]
+    },
+    {
+      "output": "upit-external",
+      "reference_status": "staged-local-open",
+      "mine_rs_status": "normalized-and-compared",
+      "comparable_status": "yes",
+      "notes": [
+        "read_marvin_upit_solution(...) normalizes marvin_upit.sol into selected linear indices",
+        "marving-info.txt confirms field_4 as tonnage and field_7 as proc_profit for this comparison",
+        "Current membership jaccard versus the open mine-rs candidate is 0.6918310777759661"
+      ]
+    },
+    {
+      "output": "upit-internal",
+      "reference_status": "staged-local-open",
+      "mine_rs_status": "prototype-available-and-compared",
+      "comparable_status": "yes-with-gap",
+      "notes": [
+        "build_upit_prototype(...) now compares directly against marvin_upit.sol using the staged local reference",
+        "The current prototype selects 12236 blocks versus 8516 in the reference",
+        "The current prototype overstates tonnage by 222329511.765961 and understates total value by 10770.666083968448 in the current open workflow"
+      ]
+    },
+    {
+      "output": "cpit-external",
+      "reference_status": "staged-local-open",
+      "mine_rs_status": "reference-artifact-only",
+      "comparable_status": "not-yet",
+      "notes": [
+        "marvin.cpit and marvin_cpit_gmunoz120723.sol are staged locally",
+        "The repo still lacks a CPIT-normalized contract and an equivalent capacity-constrained pit solver/report to compare against"
+      ]
+    },
+    {
+      "output": "pcpsp-external",
+      "reference_status": "staged-local-open",
+      "mine_rs_status": "reference-artifact-only",
+      "comparable_status": "not-yet",
+      "notes": [
+        "marvin.pcpsp and marvin_pcpsp_gmunoz120723.sol are staged locally",
+        "The repo still lacks a normalized PCPSP contract and a comparable destination-aware long-term scheduler"
+      ]
+    },
+    {
+      "output": "lp-relaxations",
+      "reference_status": "staged-local-open",
+      "mine_rs_status": "reference-artifact-only",
+      "comparable_status": "not-yet",
+      "notes": [
+        "marvin.LPcpit and marvin.LPpcpsp are staged locally",
+        "The repo does not yet expose normalized LP relaxation contracts or relaxed benchmark comparators"
+      ]
+    },
+    {
+      "output": "benchmark-comparison",
+      "reference_status": "partial",
+      "mine_rs_status": "precedence-and-upit-comparison-available",
+      "comparable_status": "partial",
+      "notes": [
+        "cargo run -p marvin-benchmark emits a reproducible comparison report",
+        "datasets/benchmarks/marvin/outputs/comparison-report.json records precedence and upit membership/value/tonnage gaps",
+        "Full MR-133 completion still depends on normalizing and comparing CPIT, PCPSP and LP artifacts"
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "kind": "local-info-file",
+      "path": "datasets/benchmarks/marvin/marving-info.txt",
+      "note": "Confirms block size, precedence metadata, proc_profit semantics and official objective values for UPIT/CPIT/PCPSP."
+    },
+    {
+      "kind": "local-comparison-report",
+      "path": "datasets/benchmarks/marvin/outputs/comparison-report.json",
+      "note": "Versioned report produced from current repo state by cargo run -p marvin-benchmark."
+    },
+    {
+      "kind": "public-code-reference",
+      "url": "https://raw.githubusercontent.com/Venkat-Akhil-Ankem/MineLib/main/scripts/download_data.py",
+      "note": "Public code referencing official Marvin MineLib instance URLs."
+    },
+    {
+      "kind": "public-notebook-reference",
+      "url": "https://raw.githubusercontent.com/douglasmazzinghy/2026-MME/main/06_marvin/marvin.ipynb",
+      "note": "Public notebook expecting marvin.blocks and marvin.prec plus generated local outputs."
+    }
+  ]
+}
