@@ -11,7 +11,7 @@
       "instance_id": "marvin-local",
       "source": {
         "kind": "local-repository-artifact",
-        "original_path": "resources/marvin.blocks"
+        "original_path": "datasets/benchmarks/marvin/marvin.blocks"
       },
       "artifacts": [
         {

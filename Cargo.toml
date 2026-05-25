@@ -10,7 +10,7 @@ members = [
     "crates/mine-sdk",
     "crates/mine-tools",
     "crates/mine-python",
-    "benchmarks/foundation-smoke",
+
     "crates/mine-reblock",
     "examples/marvin-inspect",
     "examples/marvin-benchmark",
