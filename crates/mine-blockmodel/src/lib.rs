@@ -13,6 +13,7 @@ mod model;
 mod neighborhoods;
 mod selection;
 mod summary;
+mod validation;
 mod variography;
 
 pub use analytics::{
@@ -52,6 +53,12 @@ pub use neighborhoods::{
 };
 pub use selection::BlockSelection;
 pub use summary::{ColumnSummary, ModelSummary, SpatialExtent};
+pub use validation::{
+    CompositeVsBlockReport, CrossValidationEntry, CrossValidationEstimator,
+    CrossValidationMetrics, CrossValidationReport, SwathAxis, SwathBin, SwathDataPoint,
+    SwathPlotReport, VariableStatistics, build_swath_plot, compare_composites_vs_blocks,
+    cross_validate_leave_one_out,
+};
 pub use variography::{
     ExperimentalVariogram, ExperimentalVariogramLag, ExperimentalVariogramLagRow,
     VariogramDirection, VariogramFitOptions, VariogramFitSummary, VariogramLagConfig,

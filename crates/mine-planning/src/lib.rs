@@ -3,12 +3,15 @@
 mod benches;
 mod comparison;
 mod marvin;
+mod max_closure;
 mod phases;
 mod precedence;
 mod pushback;
 mod scenario;
 mod schedule;
+mod slope_templates;
 mod upit;
+mod upl_solver;
 
 pub use benches::{BenchAssignment, BenchParameters, assign_benches};
 pub use comparison::{
@@ -24,6 +27,10 @@ pub use precedence::{
     BlockPrecedenceTemplate, PrecedenceEdge, PrecedenceGraph, PrecedenceNode, PrecedenceOffset,
     build_block_precedence_graph, read_precedence_graph_json, write_precedence_graph_json,
 };
+pub use max_closure::{
+    MaxClosureArc, MaxClosureArcKind, MaxClosureGraph, MaxClosureNodeId, build_max_closure_graph,
+    verify_closure,
+};
 pub use pushback::{
     PushbackGenerationRules, PushbackPrototype, PushbackPrototypeReport, build_pushback_prototype,
 };
@@ -32,7 +39,11 @@ pub use schedule::{
     Schedule, ScheduleConstraints, ScheduleEntry, SchedulePeriodSummary, ScheduleViolation,
     ScheduleViolationCode, build_schedule, validate_vertical_advance,
 };
+pub use slope_templates::{
+    SlopeAngleRule, VariableSlopeTemplate, derive_precedence_template_from_slope,
+};
 pub use upit::{UpitPrototypeReport, build_upit_prototype};
+pub use upl_solver::{UplSolverResult, solve_upl_exact};
 
 #[cfg(test)]
 mod tests {
