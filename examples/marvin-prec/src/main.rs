@@ -1,4 +1,11 @@
 //! Ejemplo ejecutable para generar y serializar `prec` abierto desde `marvin.blocks`.
+//!
+//! Uso:
+//!   cargo run -p marvin-prec [dataset_path] [output_path]
+//!
+//! Si no se especifican argumentos, el dataset se toma desde
+//! `datasets/benchmarks/marvin/marvin.blocks` y la salida se escribe en
+//! `datasets/benchmarks/marvin/outputs/marvin.prec.json`.
 
 use std::env;
 use std::fs;
@@ -21,22 +28,19 @@ struct MarvinPrecOutput {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let dataset_path = env::args_os().nth(1).map(PathBuf::from).unwrap_or_else(|| {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("..")
-            .join("..")
-            .join("datasets")
-            .join("benchmarks")
-            .join("marvin")
-            .join("marvin.blocks")
-    });
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..");
+    let marvin_dir = repo_root
+        .join("datasets")
+        .join("benchmarks")
+        .join("marvin");
+    let dataset_path = env::args_os()
+        .nth(1)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| marvin_dir.join("marvin.blocks"));
     let output_path = env::args_os().nth(2).map(PathBuf::from).unwrap_or_else(|| {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("..")
-            .join("..")
-            .join("target")
-            .join("marvin")
-            .join("marvin.prec.json")
+        marvin_dir.join("outputs").join("marvin.prec.json")
     });
 
     let model = read_marvin_blocks(&dataset_path)?;
@@ -69,7 +73,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         roundtrip_matches: roundtrip == graph,
     };
 
-    println!("{}", serde_json::to_string_pretty(&output)?);
+    let json = serde_json::to_string_pretty(&output)?;
+    eprintln!("prec report written to {}", output_path.display());
+    println!("{json}");
 
     Ok(())
 }
