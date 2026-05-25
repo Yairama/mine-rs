@@ -208,8 +208,7 @@ mod tests {
             column_id: mine_core::ColumnId::new("cu").expect("column id should be valid"),
             domain: None,
             direction: None,
-            lag_config: VariogramLagConfig::new(10.0, 3, 2.0)
-                .expect("lag config should be valid"),
+            lag_config: VariogramLagConfig::new(10.0, 3, 2.0).expect("lag config should be valid"),
             sample_count: 10,
             lags: vec![
                 ExperimentalVariogramLag {
@@ -314,8 +313,7 @@ mod tests {
         let disc = BlockDiscretization::new(4, 4, 4).expect("discretization should be valid");
         let block_center = Coordinate3D::new(0.0, 0.0, 0.0).expect("origin should be valid");
 
-        let near =
-            Coordinate3D::new(5.0, 0.0, 0.0).expect("near sample location should be valid");
+        let near = Coordinate3D::new(5.0, 0.0, 0.0).expect("near sample location should be valid");
         let far = Coordinate3D::new(20.0, 0.0, 0.0).expect("far sample location should be valid");
 
         let cov_near = compute_point_to_block_covariance(near, block_center, &dims, &disc, &model)

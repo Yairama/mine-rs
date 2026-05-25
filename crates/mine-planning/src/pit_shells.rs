@@ -4,16 +4,19 @@
 //! resuelve el UPL exacto. A medida que f decrece, el pit óptimo se contrae,
 //! produciendo una familia de shells anidados.
 //!
-//! Esta implementación es correcta pero escala con Edmonds-Karp (O(VE²)).
-//! Para modelos grandes se recomienda migrar el backend a push-relabel.
+//! Esta implementación usa el backend exacto actual de max-flow basado en Dinic.
+//! Sigue siendo un solver exacto generalista, pero ya escala mejor que la ruta
+//! anterior con Edmonds-Karp para benchmarks tipo Marvin.
 
 use std::collections::BTreeMap;
+use std::fs;
+use std::path::Path;
 
 use mine_blockmodel::BlockModel;
 use mine_core::{ColumnId, MineError};
 use serde::{Deserialize, Serialize};
 
-use crate::max_closure::{MaxClosureGraph, build_max_closure_graph};
+use crate::max_closure::build_max_closure_graph;
 use crate::precedence::PrecedenceGraph;
 use crate::upl_solver::{UplSolverResult, solve_upl_exact};
 
@@ -57,6 +60,30 @@ pub struct PitShellSet {
     pub unique_shell_count: usize,
 }
 
+/// Escribe un `PitShellSet` en JSON como contrato abierto inicial para shells.
+pub fn write_pit_shell_set_json(
+    shell_set: &PitShellSet,
+    path: impl AsRef<Path>,
+) -> Result<(), MineError> {
+    let json = serde_json::to_string_pretty(shell_set).map_err(|error| MineError::Io {
+        message: format!("unable to serialize pit shell set to JSON: {error}"),
+    })?;
+    fs::write(path.as_ref(), json).map_err(|error| MineError::Io {
+        message: format!("unable to write pit shell set JSON: {error}"),
+    })?;
+    Ok(())
+}
+
+/// Lee un `PitShellSet` desde JSON usando el contrato abierto inicial del proyecto.
+pub fn read_pit_shell_set_json(path: impl AsRef<Path>) -> Result<PitShellSet, MineError> {
+    let json = fs::read_to_string(path.as_ref()).map_err(|error| MineError::Io {
+        message: format!("unable to read pit shell set JSON: {error}"),
+    })?;
+    serde_json::from_str(&json).map_err(|error| MineError::Io {
+        message: format!("unable to decode pit shell set JSON: {error}"),
+    })
+}
+
 /// Métricas por shell para un `PitShellSet`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PitShellMetrics {
@@ -80,7 +107,7 @@ pub struct PitShellMetrics {
 ///
 /// Para cada factor f en `factors`:
 /// - Se escalan los pesos de los bloques: `weight_i * f`
-/// - Se resuelve el UPL exacto con max-flow (Edmonds-Karp)
+/// - Se resuelve el UPL exacto con max-flow (Dinic)
 /// - Se almacena el shell resultante
 ///
 /// Los shells se deduplicen: dos factores que producen la misma membresía
@@ -88,8 +115,10 @@ pub struct PitShellMetrics {
 ///
 /// # Advertencia de escala
 ///
-/// Edmonds-Karp es O(VE²). Para modelos de más de ~5000 bloques, esta función
-/// puede ser lenta. Un backend de push-relabel o pseudoflow es recomendable.
+/// El backend actual mejora sustancialmente la escalabilidad respecto a
+/// Edmonds-Karp y ya permite correr benchmarks tipo Marvin. Aun así, si aparecen
+/// instancias mucho mayores o más densas, un backend especializado adicional
+/// (push-relabel o pseudoflow) puede seguir siendo una ruta válida.
 pub fn generate_nested_shells(
     block_weights: &[f64],
     precedence_graph: &PrecedenceGraph,
@@ -265,11 +294,8 @@ mod tests {
             )])
             .unwrap_err();
             // Return graph with a single node
-            return PrecedenceGraph::from_nodes_and_edges(
-                vec![PrecedenceNode::Block(0)],
-                vec![],
-            )
-            .expect("single-node graph should be valid");
+            return PrecedenceGraph::from_nodes_and_edges(vec![PrecedenceNode::Block(0)], vec![])
+                .expect("single-node graph should be valid");
         }
         PrecedenceGraph::new(edges).expect("chain graph should be valid")
     }
@@ -312,7 +338,11 @@ mod tests {
             let curr = &shells.shells[i].selected_blocks;
             // Every block in prev must be in curr (nesting property)
             for &b in prev {
-                assert!(curr.contains(&b), "shell {i} must contain block {b} from shell {}", i - 1);
+                assert!(
+                    curr.contains(&b),
+                    "shell {i} must contain block {b} from shell {}",
+                    i - 1
+                );
             }
         }
     }
@@ -323,8 +353,8 @@ mod tests {
         let weights = vec![1.0, -100.0];
         let graph = chain_graph(2);
 
-        let shells = generate_nested_shells(&weights, &graph, &[0.01, 1.0])
-            .expect("should generate shells");
+        let shells =
+            generate_nested_shells(&weights, &graph, &[0.01, 1.0]).expect("should generate shells");
 
         // At f=0.01: block 0 worth 0.01, but requires predecessor of block 1 (cost -100*0.01=-1)
         // Since chain is 0→1, block 0 is predecessor of block 1 → to mine block 1, need block 0
@@ -334,7 +364,10 @@ mod tests {
         // weights at f=0.01: [0.01, -1.0] → selecting only block 0: gain = 0.01
         // selecting both: 0.01 + (-1.0) = -0.99 → bad
         // So optimal: select only block 0
-        let shell_01 = shells.shells.iter().find(|s| (s.revenue_factor - 0.01).abs() < 1e-9);
+        let shell_01 = shells
+            .shells
+            .iter()
+            .find(|s| (s.revenue_factor - 0.01).abs() < 1e-9);
         if let Some(s) = shell_01 {
             // Should not select block 1 (too costly)
             assert!(!s.selected_blocks.contains(&1_usize));
@@ -368,12 +401,12 @@ mod tests {
         let weights = vec![1.0];
         let graph = chain_graph(1);
 
-        let err = generate_nested_shells(&weights, &graph, &[0.0])
-            .expect_err("zero factor should fail");
+        let err =
+            generate_nested_shells(&weights, &graph, &[0.0]).expect_err("zero factor should fail");
         assert!(err.to_string().contains("revenue factor"));
 
-        let err2 = generate_nested_shells(&weights, &graph, &[1.5])
-            .expect_err("factor > 1 should fail");
+        let err2 =
+            generate_nested_shells(&weights, &graph, &[1.5]).expect_err("factor > 1 should fail");
         assert!(err2.to_string().contains("revenue factor"));
     }
 

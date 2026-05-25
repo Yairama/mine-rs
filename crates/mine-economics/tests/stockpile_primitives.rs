@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use mine_core::MineError;
 use mine_economics::{
     DestinationId, DirectDestinationFeed, MaterialParcel, StockpileDefinition,
-    StockpileDegradation, StockpileDeposit, StockpileId, StockpilePeriodInput,
-    StockpilePlanInput, StockpileReclaim, StockpileTransactionOrder, evaluate_stockpile_plan,
+    StockpileDegradation, StockpileDeposit, StockpileId, StockpilePeriodInput, StockpilePlanInput,
+    StockpileReclaim, StockpileTransactionOrder, evaluate_stockpile_plan,
 };
 
 #[test]
@@ -15,26 +15,34 @@ fn evaluate_stockpile_balances_and_destination_blending() {
             parcel(100.0, &[("cu", 1.0)]),
             None,
         )],
-        vec![StockpilePeriodInput::new(
-            "P1",
-            vec![StockpileDeposit::new(
-                StockpileId::new("sp-main").expect("stockpile should be valid"),
-                parcel(50.0, &[("cu", 1.5)]),
+        vec![
+            StockpilePeriodInput::new(
+                "P1",
+                vec![
+                    StockpileDeposit::new(
+                        StockpileId::new("sp-main").expect("stockpile should be valid"),
+                        parcel(50.0, &[("cu", 1.5)]),
+                    )
+                    .expect("deposit should be valid"),
+                ],
+                vec![
+                    StockpileReclaim::new(
+                        StockpileId::new("sp-main").expect("stockpile should be valid"),
+                        DestinationId::new("mill").expect("destination should be valid"),
+                        60.0,
+                    )
+                    .expect("reclaim should be valid"),
+                ],
+                vec![
+                    DirectDestinationFeed::new(
+                        DestinationId::new("mill").expect("destination should be valid"),
+                        parcel(30.0, &[("cu", 0.9)]),
+                    )
+                    .expect("direct feed should be valid"),
+                ],
             )
-            .expect("deposit should be valid")],
-            vec![StockpileReclaim::new(
-                StockpileId::new("sp-main").expect("stockpile should be valid"),
-                DestinationId::new("mill").expect("destination should be valid"),
-                60.0,
-            )
-            .expect("reclaim should be valid")],
-            vec![DirectDestinationFeed::new(
-                DestinationId::new("mill").expect("destination should be valid"),
-                parcel(30.0, &[("cu", 0.9)]),
-            )
-            .expect("direct feed should be valid")],
-        )
-        .expect("period should be valid")],
+            .expect("period should be valid"),
+        ],
         StockpileTransactionOrder::DepositThenReclaim,
     )
     .expect("plan should be valid");
@@ -65,22 +73,24 @@ fn apply_degradation_before_period_movements() {
         vec![StockpileDefinition::new(
             StockpileId::new("sp-weathered").expect("stockpile should be valid"),
             parcel(100.0, &[("cu", 2.0)]),
-            Some(
-                StockpileDegradation::new(0.1, 0.2).expect("degradation should be valid"),
-            ),
+            Some(StockpileDegradation::new(0.1, 0.2).expect("degradation should be valid")),
         )],
-        vec![StockpilePeriodInput::new(
-            "P1",
-            vec![],
-            vec![StockpileReclaim::new(
-                StockpileId::new("sp-weathered").expect("stockpile should be valid"),
-                DestinationId::new("mill").expect("destination should be valid"),
-                45.0,
+        vec![
+            StockpilePeriodInput::new(
+                "P1",
+                vec![],
+                vec![
+                    StockpileReclaim::new(
+                        StockpileId::new("sp-weathered").expect("stockpile should be valid"),
+                        DestinationId::new("mill").expect("destination should be valid"),
+                        45.0,
+                    )
+                    .expect("reclaim should be valid"),
+                ],
+                vec![],
             )
-            .expect("reclaim should be valid")],
-            vec![],
-        )
-        .expect("period should be valid")],
+            .expect("period should be valid"),
+        ],
         StockpileTransactionOrder::ReclaimThenDeposit,
     )
     .expect("plan should be valid");
@@ -105,22 +115,28 @@ fn explicit_transaction_order_changes_reclaim_composition() {
                 parcel(100.0, &[("cu", 1.0)]),
                 None,
             )],
-            vec![StockpilePeriodInput::new(
-                "P1",
-                vec![StockpileDeposit::new(
-                    StockpileId::new("sp-order").expect("stockpile should be valid"),
-                    parcel(100.0, &[("cu", 4.0)]),
+            vec![
+                StockpilePeriodInput::new(
+                    "P1",
+                    vec![
+                        StockpileDeposit::new(
+                            StockpileId::new("sp-order").expect("stockpile should be valid"),
+                            parcel(100.0, &[("cu", 4.0)]),
+                        )
+                        .expect("deposit should be valid"),
+                    ],
+                    vec![
+                        StockpileReclaim::new(
+                            StockpileId::new("sp-order").expect("stockpile should be valid"),
+                            DestinationId::new("mill").expect("destination should be valid"),
+                            100.0,
+                        )
+                        .expect("reclaim should be valid"),
+                    ],
+                    vec![],
                 )
-                .expect("deposit should be valid")],
-                vec![StockpileReclaim::new(
-                    StockpileId::new("sp-order").expect("stockpile should be valid"),
-                    DestinationId::new("mill").expect("destination should be valid"),
-                    100.0,
-                )
-                .expect("reclaim should be valid")],
-                vec![],
-            )
-            .expect("period should be valid")],
+                .expect("period should be valid"),
+            ],
             StockpileTransactionOrder::DepositThenReclaim,
         )
         .expect("plan should be valid"),
@@ -134,22 +150,28 @@ fn explicit_transaction_order_changes_reclaim_composition() {
                 parcel(100.0, &[("cu", 1.0)]),
                 None,
             )],
-            vec![StockpilePeriodInput::new(
-                "P1",
-                vec![StockpileDeposit::new(
-                    StockpileId::new("sp-order").expect("stockpile should be valid"),
-                    parcel(100.0, &[("cu", 4.0)]),
+            vec![
+                StockpilePeriodInput::new(
+                    "P1",
+                    vec![
+                        StockpileDeposit::new(
+                            StockpileId::new("sp-order").expect("stockpile should be valid"),
+                            parcel(100.0, &[("cu", 4.0)]),
+                        )
+                        .expect("deposit should be valid"),
+                    ],
+                    vec![
+                        StockpileReclaim::new(
+                            StockpileId::new("sp-order").expect("stockpile should be valid"),
+                            DestinationId::new("mill").expect("destination should be valid"),
+                            100.0,
+                        )
+                        .expect("reclaim should be valid"),
+                    ],
+                    vec![],
                 )
-                .expect("deposit should be valid")],
-                vec![StockpileReclaim::new(
-                    StockpileId::new("sp-order").expect("stockpile should be valid"),
-                    DestinationId::new("mill").expect("destination should be valid"),
-                    100.0,
-                )
-                .expect("reclaim should be valid")],
-                vec![],
-            )
-            .expect("period should be valid")],
+                .expect("period should be valid"),
+            ],
             StockpileTransactionOrder::ReclaimThenDeposit,
         )
         .expect("plan should be valid"),
@@ -171,18 +193,22 @@ fn reject_reclaim_above_available_balance() {
             parcel(50.0, &[("cu", 1.0)]),
             None,
         )],
-        vec![StockpilePeriodInput::new(
-            "P1",
-            vec![],
-            vec![StockpileReclaim::new(
-                StockpileId::new("sp-limited").expect("stockpile should be valid"),
-                DestinationId::new("mill").expect("destination should be valid"),
-                60.0,
+        vec![
+            StockpilePeriodInput::new(
+                "P1",
+                vec![],
+                vec![
+                    StockpileReclaim::new(
+                        StockpileId::new("sp-limited").expect("stockpile should be valid"),
+                        DestinationId::new("mill").expect("destination should be valid"),
+                        60.0,
+                    )
+                    .expect("reclaim should be valid"),
+                ],
+                vec![],
             )
-            .expect("reclaim should be valid")],
-            vec![],
-        )
-        .expect("period should be valid")],
+            .expect("period should be valid"),
+        ],
         StockpileTransactionOrder::ReclaimThenDeposit,
     )
     .expect("plan should be valid");
@@ -205,17 +231,21 @@ fn reject_unknown_stockpile_reference() {
             parcel(10.0, &[("cu", 0.2)]),
             None,
         )],
-        vec![StockpilePeriodInput::new(
-            "P1",
-            vec![StockpileDeposit::new(
-                StockpileId::new("sp-missing").expect("stockpile should be valid"),
-                parcel(5.0, &[("cu", 0.1)]),
+        vec![
+            StockpilePeriodInput::new(
+                "P1",
+                vec![
+                    StockpileDeposit::new(
+                        StockpileId::new("sp-missing").expect("stockpile should be valid"),
+                        parcel(5.0, &[("cu", 0.1)]),
+                    )
+                    .expect("deposit should be valid"),
+                ],
+                vec![],
+                vec![],
             )
-            .expect("deposit should be valid")],
-            vec![],
-            vec![],
-        )
-        .expect("period should be valid")],
+            .expect("period should be valid"),
+        ],
         StockpileTransactionOrder::DepositThenReclaim,
     )
     .expect_err("unknown stockpile should fail");

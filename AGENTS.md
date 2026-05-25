@@ -227,6 +227,7 @@ Cuando el proyecto pase a implementación:
 - Mantener outputs serializables para tools y agentes.
 - Validar que Python y Rust llamen la misma lógica central.
 - Medir performance en operaciones sobre modelos grandes.
+- Cuando una implementación siga un paper, preprint arXiv o fuente técnica externa, dejar la referencia bibliográfica y DOI/URL en comentarios o docstrings del código correspondiente, distinguiendo claramente si se trata de literatura académica o práctica actual.
 
 ## Criterio de calidad
 

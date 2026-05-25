@@ -16,6 +16,7 @@ members = [
     "examples/marvin-benchmark",
     "examples/marvin-prec",
     "examples/marvin-planning",
+    "examples/stochastic-planning",
 ]
 resolver = "3"
 

@@ -2,6 +2,7 @@
 
 mod benches;
 mod comparison;
+mod long_term_schedule;
 mod max_closure;
 mod phase_design;
 mod phases;
@@ -10,7 +11,10 @@ mod precedence;
 mod pushback;
 mod scenario;
 mod schedule;
+mod scheduling_problem;
 mod slope_templates;
+mod small_scheduling;
+mod stockpile_policy;
 mod upit;
 mod upl_solver;
 
@@ -20,17 +24,27 @@ pub use comparison::{
     NumericMetricTolerance, PrecedenceGraphComparisonReport, compare_block_memberships,
     compare_named_numeric_metrics, compare_precedence_graphs, compare_upit_reports,
 };
+pub use long_term_schedule::{
+    LongTermSchedule, LongTermScheduleEntry, LongTermScheduleMaterialFlowReport,
+    LongTermSchedulePeriodCapacity, LongTermSchedulePeriodFlow, LongTermScheduleStockpile,
+    LongTermScheduleStockpileBalance, LongTermScheduleViolation, LongTermScheduleViolationCode,
+    ScheduleDestinationCapacity, ScheduleDestinationId, ScheduleStockpileCapacity,
+    ScheduleStockpileId, build_aggregated_long_term_schedule,
+    evaluate_long_term_schedule_material_flows,
+};
 pub use max_closure::{
     MaxClosureArc, MaxClosureArcKind, MaxClosureGraph, MaxClosureNodeId, build_max_closure_graph,
     verify_closure,
 };
 pub use phase_design::{
-    NestingAccessRules, PhaseDesign, PushbackPlan, derive_pushbacks_from_nested_shells,
+    NestingAccessRules, PhaseDesign, PushbackPlan, derive_phase_design_from_nested_shells,
+    derive_pushbacks_from_nested_shells,
 };
 pub use phases::{PhaseAssignment, PhaseTaggingReport, assign_phases_from_column};
 pub use pit_shells::{
     PitShell, PitShellMetrics, PitShellSet, compute_pit_shell_metrics, generate_nested_shells,
-    generate_nested_shells_from_model, uniform_revenue_factors,
+    generate_nested_shells_from_model, read_pit_shell_set_json, uniform_revenue_factors,
+    write_pit_shell_set_json,
 };
 pub use precedence::{
     BlockPrecedenceTemplate, PrecedenceEdge, PrecedenceGraph, PrecedenceNode, PrecedenceOffset,
@@ -44,8 +58,21 @@ pub use schedule::{
     Schedule, ScheduleConstraints, ScheduleEntry, SchedulePeriodSummary, ScheduleViolation,
     ScheduleViolationCode, build_schedule, validate_vertical_advance,
 };
+pub use scheduling_problem::{
+    SchedulingObjectiveTerm, SchedulingPeriod, SchedulingProblem, SchedulingResourceBound,
+    SchedulingResourceId, SchedulingResourceRequirement, SchedulingUnit, SchedulingUnitId,
+};
 pub use slope_templates::{
     SlopeAngleRule, VariableSlopeTemplate, derive_precedence_template_from_slope,
+};
+pub use small_scheduling::{
+    SmallSchedulingAssignment, SmallSchedulingPeriodSummary, SmallSchedulingResourceUsage,
+    SmallSchedulingSolution, build_ready_frontier_long_term_schedule,
+    build_ready_frontier_schedule, solve_small_scheduling_problem,
+};
+pub use stockpile_policy::{
+    LongTermStockpileDepositPolicy, LongTermStockpilePolicy, LongTermStockpileReclaimPolicy,
+    apply_long_term_stockpile_policy,
 };
 pub use upit::{UpitPrototypeReport, build_upit_prototype};
 pub use upl_solver::{UplSolverResult, solve_upl_exact};

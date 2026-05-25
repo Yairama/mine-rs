@@ -32,10 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..");
-    let marvin_dir = repo_root
-        .join("datasets")
-        .join("benchmarks")
-        .join("marvin");
+    let marvin_dir = repo_root.join("datasets").join("benchmarks").join("marvin");
     let dataset_path = env::args_os()
         .nth(1)
         .map(PathBuf::from)

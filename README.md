@@ -247,11 +247,12 @@ cargo run -p marvin-inspect
 cargo run -p marvin-prec
 cargo run -p marvin-planning
 cargo run -p marvin-benchmark
+cargo run -p stochastic-planning
 ```
 
 El estado actual de paridad del benchmark Marvin queda versionado en `datasets/benchmarks/marvin/outputs/parity-report.json`, y la comparación reproducible hoy disponible queda registrada en `datasets/benchmarks/marvin/outputs/comparison-report.json`.
 
-Los artefactos externos/versionados de Marvin viven en `datasets/benchmarks/marvin/references/`, mientras que `datasets/benchmarks/marvin/outputs/` queda reservado para reportes generados por el repo. `marvin-planning` aplica el workflow experimental hoy disponible sobre Marvin: precedencias deterministas, `upit` heurístico, bancos geométricos, schedule por bancos y pushbacks sintéticos. `marvin-benchmark` normaliza y audita `prec`, `upit`, `cpit`, `pcpsp` y las relajaciones LP, y muestra con métricas explícitas cuánto se parecen hoy esos artefactos externos a las salidas abiertas actuales del SDK. Estas salidas siguen siendo útiles para exploración y benchmarking interno, pero no deben interpretarse todavía como paridad validada con todos los resultados oficiales de Marvin.
+Los artefactos externos/versionados de Marvin viven en `datasets/benchmarks/marvin/references/`, mientras que `datasets/benchmarks/marvin/outputs/` queda reservado para reportes generados por el repo. `marvin-planning` aplica el workflow experimental hoy disponible sobre Marvin: precedencias deterministas, `upit` heurístico, bancos geométricos, schedule por bancos y pushbacks sintéticos. `marvin-benchmark` normaliza y audita `prec`, `upit`, `cpit`, `pcpsp` y las relajaciones LP, incluye ahora una comparación **exacta** `mine-rs` vs UPIT Marvin basada en `marvin.upit` + `marvin.prec`, y además ejecuta rutas internas end-to-end de `mine-rs` para comparar candidatos propios contra las referencias **CPIT y PCPSP** cuando es posible. `stochastic-planning` agrega un prototipo pequeño de ranking estocástico: genera un ensemble SGS sintético, evalúa dos schedules candidatos con la economía/riesgo actual y deja explícitos los criterios de decisión y sus limitaciones. Estas salidas siguen siendo útiles para exploración y benchmarking interno, pero no deben interpretarse todavía como un solver estocástico industrial completo.
 
 ## Desarrollo local de Python
 

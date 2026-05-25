@@ -1,9 +1,9 @@
 //! Tests de integración para normalización y comparación del benchmark Marvin.
 
-#[path = "../../../examples/marvin-benchmark/src/marvin_support.rs"]
-mod marvin_support;
 #[path = "../../../examples/marvin-benchmark/src/benchmark_blocks_support.rs"]
 mod benchmark_blocks_support;
+#[path = "../../../examples/marvin-benchmark/src/marvin_support.rs"]
+mod marvin_support;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -18,8 +18,9 @@ use marvin_support::{
 use mine_core::ColumnId;
 use mine_planning::{
     BlockPrecedenceTemplate, NumericMetricTolerance, PrecedenceOffset,
-    build_block_precedence_graph, build_upit_prototype, compare_block_memberships,
-    compare_named_numeric_metrics, compare_precedence_graphs,
+    build_block_precedence_graph, build_max_closure_graph, build_upit_prototype,
+    compare_block_memberships, compare_named_numeric_metrics, compare_precedence_graphs,
+    solve_upl_exact,
 };
 
 fn marvin_dir() -> PathBuf {
@@ -320,6 +321,39 @@ fn read_marvin_cpit_reference_matches_official_discounted_objective() {
             .iter()
             .all(|resource| resource.max_period_excess <= 1e-6),
         "CPIT reference solution should respect resource limits"
+    );
+}
+
+#[test]
+fn exact_upl_solver_matches_marvin_upit_membership() {
+    let dir = marvin_dir();
+    let references_dir = marvin_references_dir();
+    let model = read_benchmark_blocks(dir.join("marvin.blocks"), "marvin")
+        .expect("marvin.blocks should load");
+    let reference_prec = read_marvin_precedence_graph(references_dir.join("marvin.prec"), &model)
+        .expect("marvin.prec should normalize");
+    let reference_upit = read_marvin_upit_solution(references_dir.join("marvin_upit.sol"), &model)
+        .expect("marvin_upit.sol should normalize");
+    let block_weights = read_marvin_upit_block_values(references_dir.join("marvin.upit"), &model)
+        .expect("marvin.upit should normalize")
+        .into_iter()
+        .collect::<BTreeMap<_, _>>();
+
+    let closure_graph = build_max_closure_graph(&block_weights, &reference_prec)
+        .expect("closure graph should build");
+    let result = solve_upl_exact(&closure_graph).expect("exact UPL solver should succeed");
+    let comparison = compare_block_memberships(&reference_upit, &result.selected_blocks);
+
+    assert_eq!(
+        comparison.jaccard_index, 1.0,
+        "exact max-closure should reproduce Marvin UPIT membership exactly"
+    );
+    assert_eq!(comparison.reference_only_blocks.len(), 0);
+    assert_eq!(comparison.candidate_only_blocks.len(), 0);
+    assert!(
+        (result.pit_value - 1_415_655_436.0_f64).abs() < 1.0,
+        "exact UPL pit value should match official Marvin UPIT objective (got {})",
+        result.pit_value
     );
 }
 

@@ -2,6 +2,7 @@
 
 mod analytics;
 mod block_support;
+mod classification;
 mod compositing;
 mod data;
 mod declustering;
@@ -13,6 +14,7 @@ mod model;
 mod neighborhoods;
 mod realizations;
 mod selection;
+mod simulation;
 mod summary;
 mod validation;
 mod variography;
@@ -23,6 +25,11 @@ pub use analytics::{
 pub use block_support::{
     BlockDiscretization, BlockSupportRegularization, compute_block_to_block_covariance,
     compute_point_to_block_covariance, regularize_block_support,
+};
+pub use classification::{
+    ClassificationLevelAssessment, ClassificationMetricConfig, ClassificationMetricsReport,
+    ClassificationThreshold, ContinuityMetrics, InformednessMetrics, PassUsageMetric,
+    SampleSpacingMetrics, evaluate_classification_metrics,
 };
 pub use compositing::{
     CompositeContribution, CompositeDomainAuditIssue, CompositeDomainAuditIssueCode,
@@ -57,11 +64,17 @@ pub use realizations::{
     RealizationStorageFormat, RealizationSupport,
 };
 pub use selection::BlockSelection;
+pub use simulation::{
+    SequentialGaussianSimulationOptions, SequentialIndicatorSimulationOptions,
+    SequentialSimulationEnsemble, SequentialSimulationRealization, SequentialSimulationSummary,
+    SimulatedNodeValue, SimulationTarget, generate_sequential_gaussian_ensemble,
+    generate_sequential_indicator_ensemble,
+};
 pub use summary::{ColumnSummary, ModelSummary, SpatialExtent};
 pub use validation::{
-    CompositeVsBlockReport, CrossValidationEntry, CrossValidationEstimator,
-    CrossValidationMetrics, CrossValidationReport, SwathAxis, SwathBin, SwathDataPoint,
-    SwathPlotReport, VariableStatistics, build_swath_plot, compare_composites_vs_blocks,
+    CompositeVsBlockReport, CrossValidationEntry, CrossValidationEstimator, CrossValidationMetrics,
+    CrossValidationReport, SwathAxis, SwathBin, SwathDataPoint, SwathPlotReport,
+    VariableStatistics, build_swath_plot, compare_composites_vs_blocks,
     cross_validate_leave_one_out,
 };
 pub use variography::{

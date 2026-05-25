@@ -8,15 +8,27 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use mine_blockmodel::{BlockModel, ColumnData};
 use mine_core::{
     BlockDimensions, ColumnId, ColumnLogicalType, ColumnMiningRole, ColumnSchema, ColumnSchemaSet,
-    Coordinate3D, GridDefinition, GridShape, MeasurementUnit, Metadata, MineError,
+    Coordinate3D, GridDefinition, GridShape, MeasurementUnit, Metadata, MineError, ModelId,
+    ScenarioId,
 };
 use mine_planning::{
-    BenchParameters, BlockPrecedenceTemplate, NumericMetricTolerance, PrecedenceNode,
-    PrecedenceOffset, PushbackGenerationRules, ScheduleConstraints, ScheduleEntry,
-    ScheduleViolationCode, assign_benches, assign_phases_from_column, build_block_precedence_graph,
-    build_pushback_prototype, build_schedule, build_upit_prototype, compare_block_memberships,
+    BenchAssignment, BenchParameters, BlockPrecedenceTemplate, LongTermSchedule,
+    LongTermScheduleEntry, LongTermSchedulePeriodCapacity, LongTermScheduleStockpile,
+    LongTermScheduleViolationCode, LongTermStockpileDepositPolicy, LongTermStockpilePolicy,
+    LongTermStockpileReclaimPolicy, NestingAccessRules, NumericMetricTolerance, PitShell,
+    PitShellSet, PrecedenceEdge, PrecedenceGraph, PrecedenceNode, PrecedenceOffset,
+    PushbackGenerationRules, PushbackPlan, ScheduleConstraints, ScheduleDestinationCapacity,
+    ScheduleDestinationId, ScheduleEntry, ScheduleStockpileCapacity, ScheduleStockpileId,
+    ScheduleViolationCode, SchedulingObjectiveTerm, SchedulingPeriod, SchedulingProblem,
+    SchedulingResourceBound, SchedulingResourceId, SchedulingResourceRequirement, SchedulingUnit,
+    SchedulingUnitId, SmallSchedulingSolution, apply_long_term_stockpile_policy, assign_benches,
+    assign_phases_from_column, build_aggregated_long_term_schedule, build_block_precedence_graph,
+    build_pushback_prototype, build_ready_frontier_long_term_schedule,
+    build_ready_frontier_schedule, build_schedule, build_upit_prototype, compare_block_memberships,
     compare_named_numeric_metrics, compare_precedence_graphs, compare_upit_reports,
-    read_precedence_graph_json, write_precedence_graph_json,
+    derive_phase_design_from_nested_shells, evaluate_long_term_schedule_material_flows,
+    read_pit_shell_set_json, read_precedence_graph_json, solve_small_scheduling_problem,
+    write_pit_shell_set_json, write_precedence_graph_json,
 };
 
 #[test]
@@ -65,6 +77,1154 @@ fn build_schedule_reports_tonnage_constraint_violations() {
             .message
             .contains("configured limit")
     );
+}
+
+#[test]
+fn build_long_term_schedule_from_legacy_schedule() {
+    let schedule = build_schedule(
+        vec![
+            ScheduleEntry::new("P1", 100, 700.0, 5, Some("phase-a".to_owned()))
+                .expect("entry should be valid"),
+            ScheduleEntry::new("P1", 101, 450.0, 4, Some("phase-b".to_owned()))
+                .expect("entry should be valid"),
+            ScheduleEntry::new("P2", 99, 400.0, 3, Some("phase-c".to_owned()))
+                .expect("entry should be valid"),
+        ],
+        ScheduleConstraints::new(Some(1000.0), None).expect("constraints should be valid"),
+    )
+    .expect("schedule should build");
+
+    let long_term_schedule = LongTermSchedule::from_schedule(
+        ScenarioId::new("scenario-01").expect("scenario should be valid"),
+        ModelId::new("model-01").expect("model should be valid"),
+        &schedule,
+        Metadata::new(),
+    )
+    .expect("long-term schedule should build");
+
+    assert_eq!(long_term_schedule.entries().len(), 3);
+    assert_eq!(long_term_schedule.capacities().len(), 2);
+    assert_eq!(long_term_schedule.entries()[0].phase_id(), Some("phase-a"));
+    assert_eq!(long_term_schedule.entries()[0].bench(), Some(100));
+    assert_eq!(
+        long_term_schedule.violations()[0].code,
+        LongTermScheduleViolationCode::ExceedsMineCapacity
+    );
+}
+
+#[test]
+fn reject_long_term_schedule_entry_with_ambiguous_routing() {
+    let error = LongTermScheduleEntry::new(
+        "P1",
+        Some("phase-a".to_owned()),
+        Some(0),
+        Some(100),
+        500.0,
+        5,
+        Some(ScheduleDestinationId::new("mill").expect("destination should be valid")),
+        Some(ScheduleStockpileId::new("sp-main").expect("stockpile should be valid")),
+        vec!["phase-root".to_owned()],
+    )
+    .expect_err("ambiguous routing should fail");
+
+    assert_eq!(
+        error,
+        MineError::Validation {
+            message:
+                "long-term schedule entry cannot route simultaneously to a destination and a stockpile"
+                    .to_owned(),
+        }
+    );
+}
+
+#[test]
+fn build_aggregated_long_term_schedule_respects_predecessors_and_splits_tonnage() {
+    let phase_plan = PushbackPlan {
+        phases: vec![
+            mine_planning::PhaseDesign {
+                phase_id: "phase-a".to_owned(),
+                pushback_index: 0,
+                shell_index: Some(0),
+                revenue_factor: Some(0.6),
+                bench: Some(101),
+                block_indices: vec![0, 1],
+                block_count: 10,
+                total_tonnage: Some(1_200.0),
+                predecessor_phase_ids: vec![],
+            },
+            mine_planning::PhaseDesign {
+                phase_id: "phase-b".to_owned(),
+                pushback_index: 0,
+                shell_index: Some(0),
+                revenue_factor: Some(0.6),
+                bench: Some(95),
+                block_indices: vec![2, 3],
+                block_count: 8,
+                total_tonnage: Some(800.0),
+                predecessor_phase_ids: vec!["phase-a".to_owned()],
+            },
+        ],
+        phase_count: 2,
+        total_block_count: 4,
+        total_tonnage: Some(2_000.0),
+        nesting_rules: NestingAccessRules::strict_sequential(),
+        limitations: vec![],
+    };
+    let capacities = vec![
+        LongTermSchedulePeriodCapacity::new("P1", Some(1_000.0), None, vec![], vec![])
+            .expect("capacity should be valid"),
+        LongTermSchedulePeriodCapacity::new("P2", Some(1_000.0), None, vec![], vec![])
+            .expect("capacity should be valid"),
+        LongTermSchedulePeriodCapacity::new("P3", Some(1_000.0), None, vec![], vec![])
+            .expect("capacity should be valid"),
+    ];
+
+    let schedule = build_aggregated_long_term_schedule(
+        ScenarioId::new("scenario-agg").expect("scenario should be valid"),
+        ModelId::new("model-agg").expect("model should be valid"),
+        &phase_plan,
+        capacities,
+        Some(10),
+        Metadata::new(),
+    )
+    .expect("aggregated long-term schedule should build");
+
+    assert_eq!(schedule.entries().len(), 3);
+    assert_eq!(schedule.entries()[0].period_label(), "P1");
+    assert_eq!(schedule.entries()[0].tonnage(), 1_000.0);
+    assert_eq!(schedule.entries()[1].period_label(), "P2");
+    assert_eq!(schedule.entries()[1].phase_id(), Some("phase-a"));
+    assert_eq!(schedule.entries()[2].period_label(), "P3");
+    assert_eq!(schedule.entries()[2].phase_id(), Some("phase-b"));
+}
+
+#[test]
+fn build_aggregated_long_term_schedule_reports_vertical_advance_violation() {
+    let phase_plan = PushbackPlan {
+        phases: vec![
+            mine_planning::PhaseDesign {
+                phase_id: "phase-a".to_owned(),
+                pushback_index: 0,
+                shell_index: Some(0),
+                revenue_factor: Some(0.6),
+                bench: Some(110),
+                block_indices: vec![0],
+                block_count: 5,
+                total_tonnage: Some(500.0),
+                predecessor_phase_ids: vec![],
+            },
+            mine_planning::PhaseDesign {
+                phase_id: "phase-b".to_owned(),
+                pushback_index: 0,
+                shell_index: Some(0),
+                revenue_factor: Some(0.6),
+                bench: Some(95),
+                block_indices: vec![1],
+                block_count: 5,
+                total_tonnage: Some(500.0),
+                predecessor_phase_ids: vec!["phase-a".to_owned()],
+            },
+        ],
+        phase_count: 2,
+        total_block_count: 2,
+        total_tonnage: Some(1_000.0),
+        nesting_rules: NestingAccessRules::strict_sequential(),
+        limitations: vec![],
+    };
+    let capacities = vec![
+        LongTermSchedulePeriodCapacity::new("P1", Some(1_000.0), None, vec![], vec![])
+            .expect("capacity should be valid"),
+        LongTermSchedulePeriodCapacity::new("P2", Some(1_000.0), None, vec![], vec![])
+            .expect("capacity should be valid"),
+    ];
+
+    let schedule = build_aggregated_long_term_schedule(
+        ScenarioId::new("scenario-vert").expect("scenario should be valid"),
+        ModelId::new("model-vert").expect("model should be valid"),
+        &phase_plan,
+        capacities,
+        Some(10),
+        Metadata::new(),
+    )
+    .expect("aggregated long-term schedule should build");
+
+    assert_eq!(schedule.violations().len(), 1);
+    assert_eq!(
+        schedule.violations()[0].code,
+        LongTermScheduleViolationCode::ExceedsVerticalAdvance
+    );
+}
+
+#[test]
+fn build_aggregated_long_term_schedule_preserves_tonnage_when_block_counts_round_to_zero() {
+    let phase_plan = PushbackPlan {
+        phases: vec![mine_planning::PhaseDesign {
+            phase_id: "phase-a".to_owned(),
+            pushback_index: 0,
+            shell_index: Some(0),
+            revenue_factor: Some(1.0),
+            bench: Some(100),
+            block_indices: vec![0, 1],
+            block_count: 2,
+            total_tonnage: Some(30.0),
+            predecessor_phase_ids: vec![],
+        }],
+        phase_count: 1,
+        total_block_count: 2,
+        total_tonnage: Some(30.0),
+        nesting_rules: NestingAccessRules::strict_sequential(),
+        limitations: vec![],
+    };
+    let capacities = vec![
+        LongTermSchedulePeriodCapacity::new("P1", Some(10.0), None, vec![], vec![])
+            .expect("capacity should be valid"),
+        LongTermSchedulePeriodCapacity::new("P2", Some(10.0), None, vec![], vec![])
+            .expect("capacity should be valid"),
+        LongTermSchedulePeriodCapacity::new("P3", Some(10.0), None, vec![], vec![])
+            .expect("capacity should be valid"),
+    ];
+
+    let schedule = build_aggregated_long_term_schedule(
+        ScenarioId::new("scenario-rounding").expect("scenario should be valid"),
+        ModelId::new("model-rounding").expect("model should be valid"),
+        &phase_plan,
+        capacities,
+        Some(10),
+        Metadata::new(),
+    )
+    .expect("aggregated long-term schedule should build");
+
+    assert_eq!(schedule.entries().len(), 3);
+    assert_eq!(schedule.entries()[0].block_count(), 1);
+    assert_eq!(schedule.entries()[1].block_count(), 0);
+    assert_eq!(schedule.entries()[2].block_count(), 1);
+    assert_eq!(schedule.entries()[1].period_label(), "P2");
+    assert_eq!(
+        schedule
+            .entries()
+            .iter()
+            .map(|entry| entry.tonnage())
+            .sum::<f64>(),
+        30.0
+    );
+}
+
+#[test]
+fn build_scheduling_problem_from_explicit_contract() {
+    let destination_id = ScheduleDestinationId::new("mill").expect("destination should be valid");
+    let stockpile_id = ScheduleStockpileId::new("sp-main").expect("stockpile should be valid");
+    let mine_resource =
+        SchedulingResourceId::new("mine_tonnage").expect("resource should be valid");
+    let plant_resource =
+        SchedulingResourceId::new("plant_tonnage").expect("resource should be valid");
+    let unit_a_id = SchedulingUnitId::new("unit-a").expect("unit id should be valid");
+    let unit_b_id = SchedulingUnitId::new("unit-b").expect("unit id should be valid");
+
+    let problem = SchedulingProblem::new(
+        ScenarioId::new("schedule-problem").expect("scenario should be valid"),
+        ModelId::new("model-problem").expect("model should be valid"),
+        vec![
+            SchedulingPeriod::new(
+                "P1",
+                vec![
+                    SchedulingResourceBound::new(mine_resource.clone(), Some(500.0), Some(1_000.0))
+                        .expect("mine bound should be valid"),
+                    SchedulingResourceBound::new(plant_resource.clone(), None, Some(700.0))
+                        .expect("plant bound should be valid"),
+                ],
+                vec![
+                    ScheduleDestinationCapacity::new(destination_id.clone(), Some(700.0))
+                        .expect("destination capacity should be valid"),
+                ],
+                vec![
+                    ScheduleStockpileCapacity::new(stockpile_id.clone(), Some(250.0), Some(80.0))
+                        .expect("stockpile capacity should be valid"),
+                ],
+            )
+            .expect("period should be valid"),
+            SchedulingPeriod::new(
+                "P2",
+                vec![
+                    SchedulingResourceBound::new(mine_resource.clone(), Some(500.0), Some(1_000.0))
+                        .expect("mine bound should be valid"),
+                    SchedulingResourceBound::new(plant_resource.clone(), None, Some(700.0))
+                        .expect("plant bound should be valid"),
+                ],
+                vec![
+                    ScheduleDestinationCapacity::new(destination_id.clone(), Some(700.0))
+                        .expect("destination capacity should be valid"),
+                ],
+                vec![
+                    ScheduleStockpileCapacity::new(stockpile_id.clone(), Some(300.0), Some(100.0))
+                        .expect("stockpile capacity should be valid"),
+                ],
+            )
+            .expect("period should be valid"),
+        ],
+        vec![
+            SchedulingUnit::new(
+                unit_a_id.clone(),
+                600.0,
+                2,
+                vec![],
+                vec![destination_id.clone()],
+                vec![stockpile_id.clone()],
+                vec![0, 1],
+                Some(100),
+                Some(0),
+                Metadata::new(),
+            )
+            .expect("unit a should be valid"),
+            SchedulingUnit::new(
+                unit_b_id.clone(),
+                550.0,
+                2,
+                vec![unit_a_id.clone()],
+                vec![destination_id.clone()],
+                vec![],
+                vec![2, 3],
+                Some(95),
+                Some(1),
+                Metadata::new(),
+            )
+            .expect("unit b should be valid"),
+        ],
+        vec![
+            SchedulingObjectiveTerm::new(unit_a_id.clone(), Some(destination_id.clone()), 120.0)
+                .expect("objective term should be valid"),
+            SchedulingObjectiveTerm::new(unit_b_id.clone(), Some(destination_id.clone()), 80.0)
+                .expect("objective term should be valid"),
+        ],
+        vec![
+            SchedulingResourceRequirement::new(
+                unit_a_id.clone(),
+                mine_resource.clone(),
+                None,
+                600.0,
+            )
+            .expect("resource requirement should be valid"),
+            SchedulingResourceRequirement::new(
+                unit_a_id,
+                plant_resource.clone(),
+                Some(destination_id.clone()),
+                600.0,
+            )
+            .expect("resource requirement should be valid"),
+            SchedulingResourceRequirement::new(unit_b_id, mine_resource, None, 550.0)
+                .expect("resource requirement should be valid"),
+        ],
+        vec![destination_id],
+        vec![
+            LongTermScheduleStockpile::new(stockpile_id, 50.0, Metadata::new())
+                .expect("stockpile should be valid"),
+        ],
+        0.10,
+        Metadata::new(),
+        vec![],
+    )
+    .expect("scheduling problem should build");
+
+    assert_eq!(problem.periods().len(), 2);
+    assert_eq!(problem.units().len(), 2);
+    assert_eq!(problem.objective_terms().len(), 2);
+    assert_eq!(problem.resource_requirements().len(), 3);
+    assert_eq!(problem.discount_rate(), 0.10);
+    assert_eq!(
+        problem.units()[1].predecessor_unit_ids()[0].as_str(),
+        "unit-a"
+    );
+}
+
+#[test]
+fn reject_scheduling_problem_with_unknown_predecessor() {
+    let error = SchedulingProblem::new(
+        ScenarioId::new("schedule-problem").expect("scenario should be valid"),
+        ModelId::new("model-problem").expect("model should be valid"),
+        vec![SchedulingPeriod::new("P1", vec![], vec![], vec![]).expect("period should be valid")],
+        vec![
+            SchedulingUnit::new(
+                SchedulingUnitId::new("unit-a").expect("unit id should be valid"),
+                600.0,
+                1,
+                vec![SchedulingUnitId::new("unit-missing").expect("unit id should be valid")],
+                vec![],
+                vec![],
+                vec![0],
+                None,
+                None,
+                Metadata::new(),
+            )
+            .expect("unit should be valid"),
+        ],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        0.10,
+        Metadata::new(),
+        vec![],
+    )
+    .expect_err("unknown predecessor should fail");
+
+    assert_eq!(
+        error,
+        MineError::Validation {
+            message: "unit `unit-a` references unknown predecessor `unit-missing`".to_owned(),
+        }
+    );
+}
+
+#[test]
+fn derive_scheduling_problem_from_pushback_plan_and_capacities() {
+    let phase_plan = PushbackPlan {
+        phases: vec![mine_planning::PhaseDesign {
+            phase_id: "phase-a".to_owned(),
+            pushback_index: 0,
+            shell_index: Some(0),
+            revenue_factor: Some(0.8),
+            bench: Some(101),
+            block_indices: vec![0, 1],
+            block_count: 2,
+            total_tonnage: Some(800.0),
+            predecessor_phase_ids: vec![],
+        }],
+        phase_count: 1,
+        total_block_count: 2,
+        total_tonnage: Some(800.0),
+        nesting_rules: NestingAccessRules::strict_sequential(),
+        limitations: vec![],
+    };
+    let destination_id = ScheduleDestinationId::new("mill").expect("destination should be valid");
+    let stockpile_id = ScheduleStockpileId::new("sp-main").expect("stockpile should be valid");
+
+    let problem = SchedulingProblem::from_pushback_plan(
+        ScenarioId::new("derived-problem").expect("scenario should be valid"),
+        ModelId::new("derived-model").expect("model should be valid"),
+        &phase_plan,
+        vec![
+            LongTermSchedulePeriodCapacity::new(
+                "P1",
+                Some(1_000.0),
+                Some(700.0),
+                vec![
+                    ScheduleDestinationCapacity::new(destination_id.clone(), Some(700.0))
+                        .expect("destination capacity should be valid"),
+                ],
+                vec![
+                    ScheduleStockpileCapacity::new(stockpile_id.clone(), Some(300.0), Some(120.0))
+                        .expect("stockpile capacity should be valid"),
+                ],
+            )
+            .expect("capacity should be valid"),
+        ],
+        vec![
+            LongTermScheduleStockpile::new(stockpile_id, 25.0, Metadata::new())
+                .expect("stockpile should be valid"),
+        ],
+        0.08,
+        Metadata::new(),
+    )
+    .expect("derived scheduling problem should build");
+
+    assert_eq!(problem.units().len(), 1);
+    assert_eq!(problem.units()[0].unit_id().as_str(), "phase-a");
+    assert_eq!(problem.periods().len(), 1);
+    assert_eq!(problem.periods()[0].resource_bounds().len(), 2);
+    assert_eq!(problem.destination_ids(), &[destination_id]);
+    assert_eq!(problem.stockpiles().len(), 1);
+    assert_eq!(problem.limitations().len(), 1);
+}
+
+#[test]
+fn solve_small_scheduling_problem_respects_precedence_and_capacity() {
+    let mine_resource =
+        SchedulingResourceId::new("mine_tonnage").expect("resource should be valid");
+    let unit_a_id = SchedulingUnitId::new("unit-a").expect("unit id should be valid");
+    let unit_b_id = SchedulingUnitId::new("unit-b").expect("unit id should be valid");
+    let problem = SchedulingProblem::new(
+        ScenarioId::new("small-solver").expect("scenario should be valid"),
+        ModelId::new("small-model").expect("model should be valid"),
+        vec![
+            SchedulingPeriod::new(
+                "P1",
+                vec![
+                    SchedulingResourceBound::new(mine_resource.clone(), None, Some(1.0))
+                        .expect("resource bound should be valid"),
+                ],
+                vec![],
+                vec![],
+            )
+            .expect("period should be valid"),
+            SchedulingPeriod::new(
+                "P2",
+                vec![
+                    SchedulingResourceBound::new(mine_resource.clone(), None, Some(1.0))
+                        .expect("resource bound should be valid"),
+                ],
+                vec![],
+                vec![],
+            )
+            .expect("period should be valid"),
+        ],
+        vec![
+            SchedulingUnit::new(
+                unit_a_id.clone(),
+                1.0,
+                1,
+                vec![],
+                vec![],
+                vec![],
+                vec![0],
+                None,
+                None,
+                Metadata::new(),
+            )
+            .expect("unit should be valid"),
+            SchedulingUnit::new(
+                unit_b_id.clone(),
+                1.0,
+                1,
+                vec![unit_a_id.clone()],
+                vec![],
+                vec![],
+                vec![1],
+                None,
+                None,
+                Metadata::new(),
+            )
+            .expect("unit should be valid"),
+        ],
+        vec![
+            SchedulingObjectiveTerm::new(unit_a_id.clone(), None, 10.0)
+                .expect("objective term should be valid"),
+            SchedulingObjectiveTerm::new(unit_b_id.clone(), None, 8.0)
+                .expect("objective term should be valid"),
+        ],
+        vec![
+            SchedulingResourceRequirement::new(unit_a_id, mine_resource.clone(), None, 1.0)
+                .expect("resource requirement should be valid"),
+            SchedulingResourceRequirement::new(unit_b_id, mine_resource, None, 1.0)
+                .expect("resource requirement should be valid"),
+        ],
+        vec![],
+        vec![],
+        0.10,
+        Metadata::new(),
+        vec![],
+    )
+    .expect("problem should be valid");
+
+    let solution = solve_small_scheduling_problem(&problem).expect("solver should find solution");
+
+    assert_eq!(solution.assignments().len(), 2);
+    assert_eq!(solution.assignments()[0].period_label(), "P1");
+    assert_eq!(solution.assignments()[1].period_label(), "P2");
+    assert_eq!(solution.assignments()[1].unit_id().as_str(), "unit-b");
+    assert!((solution.total_discounted_objective_value() - (10.0 + 8.0 / 1.1)).abs() < 1.0e-9);
+}
+
+#[test]
+fn solve_small_scheduling_problem_chooses_best_destination() {
+    let mine_resource =
+        SchedulingResourceId::new("mine_tonnage").expect("resource should be valid");
+    let plant_resource =
+        SchedulingResourceId::new("plant_tonnage").expect("resource should be valid");
+    let mill = ScheduleDestinationId::new("mill").expect("destination should be valid");
+    let waste = ScheduleDestinationId::new("waste").expect("destination should be valid");
+    let unit_id = SchedulingUnitId::new("unit-a").expect("unit id should be valid");
+    let problem = SchedulingProblem::new(
+        ScenarioId::new("small-destination").expect("scenario should be valid"),
+        ModelId::new("small-destination-model").expect("model should be valid"),
+        vec![
+            SchedulingPeriod::new(
+                "P1",
+                vec![
+                    SchedulingResourceBound::new(mine_resource.clone(), None, Some(1.0))
+                        .expect("mine bound should be valid"),
+                ],
+                vec![],
+                vec![],
+            )
+            .expect("period should be valid"),
+            SchedulingPeriod::new(
+                "P2",
+                vec![
+                    SchedulingResourceBound::new(mine_resource.clone(), None, Some(1.0))
+                        .expect("mine bound should be valid"),
+                    SchedulingResourceBound::new(plant_resource.clone(), None, Some(1.0))
+                        .expect("plant bound should be valid"),
+                ],
+                vec![],
+                vec![],
+            )
+            .expect("period should be valid"),
+        ],
+        vec![
+            SchedulingUnit::new(
+                unit_id.clone(),
+                1.0,
+                1,
+                vec![],
+                vec![mill.clone(), waste.clone()],
+                vec![],
+                vec![0],
+                None,
+                None,
+                Metadata::new(),
+            )
+            .expect("unit should be valid"),
+        ],
+        vec![
+            SchedulingObjectiveTerm::new(unit_id.clone(), Some(mill.clone()), 15.0)
+                .expect("objective term should be valid"),
+            SchedulingObjectiveTerm::new(unit_id.clone(), Some(waste.clone()), 5.0)
+                .expect("objective term should be valid"),
+        ],
+        vec![
+            SchedulingResourceRequirement::new(unit_id.clone(), mine_resource.clone(), None, 1.0)
+                .expect("resource requirement should be valid"),
+            SchedulingResourceRequirement::new(unit_id, plant_resource, Some(mill.clone()), 1.0)
+                .expect("resource requirement should be valid"),
+        ],
+        vec![mill.clone(), waste],
+        vec![],
+        0.10,
+        Metadata::new(),
+        vec![],
+    )
+    .expect("problem should be valid");
+
+    let solution: SmallSchedulingSolution =
+        solve_small_scheduling_problem(&problem).expect("solver should find solution");
+
+    assert_eq!(solution.assignments().len(), 1);
+    assert_eq!(solution.assignments()[0].period_label(), "P2");
+    assert_eq!(solution.assignments()[0].destination_id(), Some(&mill));
+}
+
+#[test]
+fn build_ready_frontier_schedule_prioritizes_value_under_capacity() {
+    let mine_resource =
+        SchedulingResourceId::new("mine_tonnage").expect("resource should be valid");
+    let unit_a_id = SchedulingUnitId::new("unit-a").expect("unit id should be valid");
+    let unit_b_id = SchedulingUnitId::new("unit-b").expect("unit id should be valid");
+    let problem = SchedulingProblem::new(
+        ScenarioId::new("frontier-solver").expect("scenario should be valid"),
+        ModelId::new("frontier-model").expect("model should be valid"),
+        vec![
+            SchedulingPeriod::new(
+                "P1",
+                vec![
+                    SchedulingResourceBound::new(mine_resource.clone(), None, Some(1.0))
+                        .expect("resource bound should be valid"),
+                ],
+                vec![],
+                vec![],
+            )
+            .expect("period should be valid"),
+            SchedulingPeriod::new(
+                "P2",
+                vec![
+                    SchedulingResourceBound::new(mine_resource.clone(), None, Some(1.0))
+                        .expect("resource bound should be valid"),
+                ],
+                vec![],
+                vec![],
+            )
+            .expect("period should be valid"),
+        ],
+        vec![
+            SchedulingUnit::new(
+                unit_a_id.clone(),
+                1.0,
+                1,
+                vec![],
+                vec![],
+                vec![],
+                vec![0],
+                None,
+                None,
+                Metadata::new(),
+            )
+            .expect("unit should be valid"),
+            SchedulingUnit::new(
+                unit_b_id.clone(),
+                1.0,
+                1,
+                vec![],
+                vec![],
+                vec![],
+                vec![1],
+                None,
+                None,
+                Metadata::new(),
+            )
+            .expect("unit should be valid"),
+        ],
+        vec![
+            SchedulingObjectiveTerm::new(unit_a_id, None, 12.0)
+                .expect("objective term should be valid"),
+            SchedulingObjectiveTerm::new(unit_b_id, None, 7.0)
+                .expect("objective term should be valid"),
+        ],
+        vec![
+            SchedulingResourceRequirement::new(
+                SchedulingUnitId::new("unit-a").expect("unit id should be valid"),
+                mine_resource.clone(),
+                None,
+                1.0,
+            )
+            .expect("resource requirement should be valid"),
+            SchedulingResourceRequirement::new(
+                SchedulingUnitId::new("unit-b").expect("unit id should be valid"),
+                mine_resource,
+                None,
+                1.0,
+            )
+            .expect("resource requirement should be valid"),
+        ],
+        vec![],
+        vec![],
+        0.10,
+        Metadata::new(),
+        vec![],
+    )
+    .expect("problem should be valid");
+
+    let solution = build_ready_frontier_schedule(&problem).expect("heuristic should build");
+
+    assert_eq!(solution.assignments().len(), 2);
+    assert_eq!(solution.assignments()[0].period_label(), "P1");
+    assert_eq!(solution.assignments()[0].unit_id().as_str(), "unit-a");
+}
+
+#[test]
+fn build_ready_frontier_schedule_respects_destination_capacity_in_period() {
+    let mine_resource =
+        SchedulingResourceId::new("mine_tonnage").expect("resource should be valid");
+    let plant_resource =
+        SchedulingResourceId::new("plant_tonnage").expect("resource should be valid");
+    let mill = ScheduleDestinationId::new("mill").expect("destination should be valid");
+    let waste = ScheduleDestinationId::new("waste").expect("destination should be valid");
+    let unit_id = SchedulingUnitId::new("unit-a").expect("unit id should be valid");
+    let problem = SchedulingProblem::new(
+        ScenarioId::new("frontier-destination").expect("scenario should be valid"),
+        ModelId::new("frontier-destination-model").expect("model should be valid"),
+        vec![
+            SchedulingPeriod::new(
+                "P1",
+                vec![
+                    SchedulingResourceBound::new(mine_resource.clone(), None, Some(1.0))
+                        .expect("mine bound should be valid"),
+                    SchedulingResourceBound::new(plant_resource.clone(), None, Some(1.0))
+                        .expect("plant bound should be valid"),
+                ],
+                vec![],
+                vec![],
+            )
+            .expect("period should be valid"),
+        ],
+        vec![
+            SchedulingUnit::new(
+                unit_id.clone(),
+                1.0,
+                1,
+                vec![],
+                vec![mill.clone(), waste.clone()],
+                vec![],
+                vec![0],
+                None,
+                None,
+                Metadata::new(),
+            )
+            .expect("unit should be valid"),
+        ],
+        vec![
+            SchedulingObjectiveTerm::new(unit_id.clone(), Some(mill.clone()), 15.0)
+                .expect("objective term should be valid"),
+            SchedulingObjectiveTerm::new(unit_id.clone(), Some(waste.clone()), 5.0)
+                .expect("objective term should be valid"),
+        ],
+        vec![
+            SchedulingResourceRequirement::new(unit_id.clone(), mine_resource.clone(), None, 1.0)
+                .expect("resource requirement should be valid"),
+            SchedulingResourceRequirement::new(unit_id, plant_resource, Some(mill.clone()), 1.0)
+                .expect("resource requirement should be valid"),
+        ],
+        vec![mill.clone(), waste],
+        vec![],
+        0.10,
+        Metadata::new(),
+        vec![],
+    )
+    .expect("problem should be valid");
+
+    let solution: SmallSchedulingSolution =
+        build_ready_frontier_schedule(&problem).expect("heuristic should build");
+
+    assert_eq!(solution.assignments().len(), 1);
+    assert_eq!(solution.assignments()[0].destination_id(), Some(&mill));
+}
+
+#[test]
+fn build_ready_frontier_long_term_schedule_routes_destinations_during_construction() {
+    let mine_resource =
+        SchedulingResourceId::new("mine_tonnage").expect("resource should be valid");
+    let mill = ScheduleDestinationId::new("mill").expect("destination should be valid");
+    let waste = ScheduleDestinationId::new("waste").expect("destination should be valid");
+    let unit_a_id = SchedulingUnitId::new("phase-a").expect("unit id should be valid");
+    let unit_b_id = SchedulingUnitId::new("phase-b").expect("unit id should be valid");
+    let problem = SchedulingProblem::new(
+        ScenarioId::new("frontier-long-term").expect("scenario should be valid"),
+        ModelId::new("frontier-long-term-model").expect("model should be valid"),
+        vec![
+            SchedulingPeriod::new(
+                "P1",
+                vec![
+                    SchedulingResourceBound::new(mine_resource, None, Some(100.0))
+                        .expect("mine bound should be valid"),
+                ],
+                vec![
+                    ScheduleDestinationCapacity::new(mill.clone(), Some(60.0))
+                        .expect("mill capacity should be valid"),
+                    ScheduleDestinationCapacity::new(waste.clone(), Some(100.0))
+                        .expect("waste capacity should be valid"),
+                ],
+                vec![],
+            )
+            .expect("period should be valid"),
+        ],
+        vec![
+            SchedulingUnit::new(
+                unit_a_id.clone(),
+                60.0,
+                3,
+                vec![],
+                vec![mill.clone(), waste.clone()],
+                vec![],
+                vec![0, 1, 2],
+                Some(110),
+                Some(0),
+                Metadata::new(),
+            )
+            .expect("unit a should be valid"),
+            SchedulingUnit::new(
+                unit_b_id.clone(),
+                40.0,
+                2,
+                vec![],
+                vec![mill.clone(), waste.clone()],
+                vec![],
+                vec![3, 4],
+                Some(105),
+                Some(0),
+                Metadata::new(),
+            )
+            .expect("unit b should be valid"),
+        ],
+        vec![
+            SchedulingObjectiveTerm::new(unit_a_id.clone(), Some(mill.clone()), 120.0)
+                .expect("objective term should be valid"),
+            SchedulingObjectiveTerm::new(unit_a_id, Some(waste.clone()), 5.0)
+                .expect("objective term should be valid"),
+            SchedulingObjectiveTerm::new(unit_b_id.clone(), Some(mill.clone()), 80.0)
+                .expect("objective term should be valid"),
+            SchedulingObjectiveTerm::new(unit_b_id, Some(waste.clone()), 10.0)
+                .expect("objective term should be valid"),
+        ],
+        vec![],
+        vec![mill.clone(), waste.clone()],
+        vec![],
+        0.0,
+        Metadata::new(),
+        vec![],
+    )
+    .expect("problem should be valid");
+
+    let schedule = build_ready_frontier_long_term_schedule(&problem, None, Metadata::new())
+        .expect("long-term schedule should build");
+    let flow_report = evaluate_long_term_schedule_material_flows(&schedule)
+        .expect("material flow report should build");
+
+    assert_eq!(schedule.entries().len(), 2);
+    assert_eq!(schedule.entries()[0].destination_id(), Some(&mill));
+    assert_eq!(schedule.entries()[1].destination_id(), Some(&waste));
+    assert_eq!(flow_report.period_flows.len(), 1);
+    assert_eq!(
+        flow_report.period_flows[0]
+            .destination_tonnage
+            .get("mill")
+            .copied(),
+        Some(60.0)
+    );
+    assert_eq!(
+        flow_report.period_flows[0]
+            .destination_tonnage
+            .get("waste")
+            .copied(),
+        Some(40.0)
+    );
+    assert!(flow_report.violations.is_empty());
+}
+
+#[test]
+fn build_ready_frontier_long_term_schedule_reports_vertical_advance_violation() {
+    let mine_resource =
+        SchedulingResourceId::new("mine_tonnage").expect("resource should be valid");
+    let unit_a_id = SchedulingUnitId::new("phase-a").expect("unit id should be valid");
+    let unit_b_id = SchedulingUnitId::new("phase-b").expect("unit id should be valid");
+    let problem = SchedulingProblem::new(
+        ScenarioId::new("frontier-vertical").expect("scenario should be valid"),
+        ModelId::new("frontier-vertical-model").expect("model should be valid"),
+        vec![
+            SchedulingPeriod::new(
+                "P1",
+                vec![
+                    SchedulingResourceBound::new(mine_resource.clone(), None, Some(1.0))
+                        .expect("mine bound should be valid"),
+                ],
+                vec![],
+                vec![],
+            )
+            .expect("period should be valid"),
+            SchedulingPeriod::new(
+                "P2",
+                vec![
+                    SchedulingResourceBound::new(mine_resource, None, Some(1.0))
+                        .expect("mine bound should be valid"),
+                ],
+                vec![],
+                vec![],
+            )
+            .expect("period should be valid"),
+        ],
+        vec![
+            SchedulingUnit::new(
+                unit_a_id.clone(),
+                1.0,
+                1,
+                vec![],
+                vec![],
+                vec![],
+                vec![0],
+                Some(110),
+                Some(0),
+                Metadata::new(),
+            )
+            .expect("unit a should be valid"),
+            SchedulingUnit::new(
+                unit_b_id.clone(),
+                1.0,
+                1,
+                vec![unit_a_id.clone()],
+                vec![],
+                vec![],
+                vec![1],
+                Some(95),
+                Some(0),
+                Metadata::new(),
+            )
+            .expect("unit b should be valid"),
+        ],
+        vec![
+            SchedulingObjectiveTerm::new(unit_a_id.clone(), None, 10.0)
+                .expect("objective term should be valid"),
+            SchedulingObjectiveTerm::new(unit_b_id, None, 9.0)
+                .expect("objective term should be valid"),
+        ],
+        vec![],
+        vec![],
+        vec![],
+        0.0,
+        Metadata::new(),
+        vec![],
+    )
+    .expect("problem should be valid");
+
+    let schedule = build_ready_frontier_long_term_schedule(&problem, Some(10), Metadata::new())
+        .expect("long-term schedule should build");
+
+    assert_eq!(schedule.violations().len(), 1);
+    assert_eq!(
+        schedule.violations()[0].code,
+        LongTermScheduleViolationCode::ExceedsVerticalAdvance
+    );
+}
+
+#[test]
+fn apply_long_term_stockpile_policy_diverts_and_reclaims_material() {
+    let mill = ScheduleDestinationId::new("mill").expect("destination should be valid");
+    let stockpile_id = ScheduleStockpileId::new("sp-main").expect("stockpile should be valid");
+    let base_schedule = LongTermSchedule::new(
+        ScenarioId::new("stockpile-policy").expect("scenario should be valid"),
+        ModelId::new("stockpile-policy-model").expect("model should be valid"),
+        vec![
+            LongTermScheduleEntry::new(
+                "P1",
+                Some("phase-a".to_owned()),
+                Some(0),
+                Some(110),
+                100.0,
+                10,
+                Some(mill.clone()),
+                None,
+                vec![],
+            )
+            .expect("entry should be valid"),
+            LongTermScheduleEntry::new(
+                "P2",
+                Some("phase-b".to_owned()),
+                Some(0),
+                Some(105),
+                80.0,
+                8,
+                Some(mill.clone()),
+                None,
+                vec!["phase-a".to_owned()],
+            )
+            .expect("entry should be valid"),
+        ],
+        vec![
+            LongTermSchedulePeriodCapacity::new(
+                "P1",
+                Some(100.0),
+                Some(100.0),
+                vec![
+                    ScheduleDestinationCapacity::new(mill.clone(), Some(100.0))
+                        .expect("destination capacity should be valid"),
+                ],
+                vec![
+                    ScheduleStockpileCapacity::new(stockpile_id.clone(), Some(50.0), None)
+                        .expect("stockpile capacity should be valid"),
+                ],
+            )
+            .expect("period capacity should be valid"),
+            LongTermSchedulePeriodCapacity::new(
+                "P2",
+                Some(120.0),
+                Some(120.0),
+                vec![
+                    ScheduleDestinationCapacity::new(mill.clone(), Some(120.0))
+                        .expect("destination capacity should be valid"),
+                ],
+                vec![
+                    ScheduleStockpileCapacity::new(stockpile_id.clone(), Some(50.0), Some(50.0))
+                        .expect("stockpile capacity should be valid"),
+                ],
+            )
+            .expect("period capacity should be valid"),
+        ],
+        vec![
+            LongTermScheduleStockpile::new(stockpile_id.clone(), 0.0, Metadata::new())
+                .expect("stockpile should be valid"),
+        ],
+        vec![],
+        Metadata::new(),
+    )
+    .expect("base schedule should be valid");
+    let policy = LongTermStockpilePolicy::new(
+        vec![
+            LongTermStockpileDepositPolicy::new("P1", mill.clone(), stockpile_id.clone(), 40.0)
+                .expect("deposit policy should be valid"),
+        ],
+        vec![
+            LongTermStockpileReclaimPolicy::new("P2", stockpile_id.clone(), mill.clone(), 40.0)
+                .expect("reclaim policy should be valid"),
+        ],
+    )
+    .expect("stockpile policy should be valid");
+
+    let updated_schedule =
+        apply_long_term_stockpile_policy(&base_schedule, &policy, Metadata::new())
+            .expect("stockpile policy should apply");
+    let flow_report = evaluate_long_term_schedule_material_flows(&updated_schedule)
+        .expect("material flow report should evaluate");
+
+    assert_eq!(updated_schedule.entries().len(), 4);
+    assert!(updated_schedule.violations().is_empty());
+    assert_eq!(
+        flow_report.period_flows[0]
+            .destination_tonnage
+            .get("mill")
+            .copied(),
+        Some(60.0)
+    );
+    assert_eq!(
+        flow_report.period_flows[0]
+            .stockpile_deposits
+            .get("sp-main")
+            .copied(),
+        Some(40.0)
+    );
+    assert_eq!(
+        flow_report.period_flows[1]
+            .stockpile_reclaims
+            .get("sp-main")
+            .copied(),
+        Some(40.0)
+    );
+    assert_eq!(flow_report.stockpile_balances.len(), 2);
+    assert_eq!(flow_report.stockpile_balances[0].closing_tonnage, 40.0);
+    assert_eq!(flow_report.stockpile_balances[1].closing_tonnage, 0.0);
+}
+
+#[test]
+fn apply_long_term_stockpile_policy_rejects_deposit_above_available_tonnage() {
+    let mill = ScheduleDestinationId::new("mill").expect("destination should be valid");
+    let stockpile_id = ScheduleStockpileId::new("sp-main").expect("stockpile should be valid");
+    let base_schedule = LongTermSchedule::new(
+        ScenarioId::new("stockpile-policy-error").expect("scenario should be valid"),
+        ModelId::new("stockpile-policy-error-model").expect("model should be valid"),
+        vec![
+            LongTermScheduleEntry::new(
+                "P1",
+                Some("phase-a".to_owned()),
+                Some(0),
+                Some(110),
+                100.0,
+                10,
+                Some(mill.clone()),
+                None,
+                vec![],
+            )
+            .expect("entry should be valid"),
+        ],
+        vec![
+            LongTermSchedulePeriodCapacity::new(
+                "P1",
+                Some(100.0),
+                Some(100.0),
+                vec![
+                    ScheduleDestinationCapacity::new(mill.clone(), Some(100.0))
+                        .expect("destination capacity should be valid"),
+                ],
+                vec![
+                    ScheduleStockpileCapacity::new(stockpile_id.clone(), Some(80.0), None)
+                        .expect("stockpile capacity should be valid"),
+                ],
+            )
+            .expect("period capacity should be valid"),
+        ],
+        vec![
+            LongTermScheduleStockpile::new(stockpile_id.clone(), 0.0, Metadata::new())
+                .expect("stockpile should be valid"),
+        ],
+        vec![],
+        Metadata::new(),
+    )
+    .expect("base schedule should be valid");
+    let policy = LongTermStockpilePolicy::new(
+        vec![
+            LongTermStockpileDepositPolicy::new("P1", mill.clone(), stockpile_id, 120.0)
+                .expect("deposit policy should be valid"),
+        ],
+        vec![],
+    )
+    .expect("stockpile policy should be valid");
+
+    let error = apply_long_term_stockpile_policy(&base_schedule, &policy, Metadata::new())
+        .expect_err("policy should reject impossible diversion");
+    assert!(error.to_string().contains("but only 100 t are available"));
 }
 
 #[test]
@@ -141,6 +1301,91 @@ fn reject_pushback_prototype_when_group_count_exceeds_limit() {
             "pushback prototype derived 2 pushbacks, exceeding configured limit of 1",
         )
     );
+}
+
+#[test]
+fn derive_phase_design_from_shells_uses_benches_and_precedence() {
+    let shell_set = PitShellSet {
+        shells: vec![
+            PitShell {
+                revenue_factor: 0.5,
+                selected_blocks: vec![0, 1],
+                pit_value: 5.0,
+                block_count: 2,
+            },
+            PitShell {
+                revenue_factor: 1.0,
+                selected_blocks: vec![0, 1, 2, 3],
+                pit_value: 8.0,
+                block_count: 4,
+            },
+        ],
+        total_block_count: 4,
+        factors_evaluated: 2,
+        unique_shell_count: 2,
+    };
+    let bench_assignments = vec![
+        BenchAssignment {
+            linear_index: 0,
+            bench: 101,
+            center_elevation: 1010.0,
+        },
+        BenchAssignment {
+            linear_index: 1,
+            bench: 100,
+            center_elevation: 1000.0,
+        },
+        BenchAssignment {
+            linear_index: 2,
+            bench: 100,
+            center_elevation: 1000.0,
+        },
+        BenchAssignment {
+            linear_index: 3,
+            bench: 99,
+            center_elevation: 990.0,
+        },
+    ];
+    let precedence_graph = PrecedenceGraph::new(vec![
+        PrecedenceEdge::new(PrecedenceNode::Block(1), PrecedenceNode::Block(0)),
+        PrecedenceEdge::new(PrecedenceNode::Block(2), PrecedenceNode::Block(3)),
+    ])
+    .expect("precedence graph should be valid");
+
+    let plan = derive_phase_design_from_nested_shells(
+        &shell_set,
+        &bench_assignments,
+        &precedence_graph,
+        Some(&[100.0, 120.0, 150.0, 180.0]),
+        NestingAccessRules::strict_sequential(),
+    )
+    .expect("phase design should derive");
+
+    assert_eq!(plan.phase_count, 4);
+    assert_eq!(plan.phases[0].bench, Some(101));
+    assert_eq!(plan.phases[1].bench, Some(100));
+    assert_eq!(plan.phases[2].bench, Some(100));
+    assert_eq!(plan.phases[3].bench, Some(99));
+
+    assert!(
+        plan.phases[2]
+            .predecessor_phase_ids
+            .iter()
+            .any(|phase_id| phase_id == "phase-s00-b101")
+    );
+    assert!(
+        plan.phases[2]
+            .predecessor_phase_ids
+            .iter()
+            .any(|phase_id| phase_id == "phase-s00-b100")
+    );
+    assert!(
+        plan.phases[3]
+            .predecessor_phase_ids
+            .iter()
+            .any(|phase_id| phase_id == "phase-s01-b100")
+    );
+    assert_eq!(plan.phases[3].total_tonnage, Some(180.0));
 }
 
 fn vertical_model(nz: usize) -> BlockModel {
@@ -362,6 +1607,244 @@ fn precedence_graph_json_roundtrip_preserves_generated_graph() {
     assert_eq!(decoded, graph);
 
     let _ = fs::remove_file(path);
+}
+
+#[test]
+fn pit_shell_set_json_roundtrip_preserves_membership_and_metrics() {
+    let shell_set = PitShellSet {
+        shells: vec![
+            PitShell {
+                revenue_factor: 0.6,
+                selected_blocks: vec![0, 1],
+                pit_value: 12.5,
+                block_count: 2,
+            },
+            PitShell {
+                revenue_factor: 1.0,
+                selected_blocks: vec![0, 1, 3],
+                pit_value: 18.0,
+                block_count: 3,
+            },
+        ],
+        total_block_count: 4,
+        factors_evaluated: 3,
+        unique_shell_count: 2,
+    };
+    let path = temporary_json_path("pit-shell-set");
+
+    write_pit_shell_set_json(&shell_set, &path).expect("shell set should write");
+    let decoded = read_pit_shell_set_json(&path).expect("shell set should read");
+
+    assert_eq!(decoded, shell_set);
+
+    let _ = fs::remove_file(path);
+}
+
+#[test]
+fn material_flow_report_tracks_destination_and_stockpile_balances() {
+    let mill = ScheduleDestinationId::new("mill").expect("destination should be valid");
+    let stockpile = ScheduleStockpileId::new("sp-main").expect("stockpile should be valid");
+    let schedule = LongTermSchedule::new(
+        ScenarioId::new("routing-scenario").expect("scenario should be valid"),
+        ModelId::new("routing-model").expect("model should be valid"),
+        vec![
+            LongTermScheduleEntry::new(
+                "P1",
+                Some("phase-a".to_owned()),
+                Some(0),
+                Some(100),
+                40.0,
+                4,
+                Some(mill.clone()),
+                None,
+                vec![],
+            )
+            .expect("entry should be valid"),
+            LongTermScheduleEntry::new(
+                "P1",
+                Some("phase-a".to_owned()),
+                Some(0),
+                Some(100),
+                30.0,
+                3,
+                None,
+                Some(stockpile.clone()),
+                vec![],
+            )
+            .expect("entry should be valid"),
+            LongTermScheduleEntry::new_with_reclaim(
+                "P2",
+                None,
+                None,
+                None,
+                25.0,
+                2,
+                Some(mill.clone()),
+                None,
+                Some(stockpile.clone()),
+                vec![],
+            )
+            .expect("reclaim entry should be valid"),
+        ],
+        vec![
+            LongTermSchedulePeriodCapacity::new(
+                "P1",
+                Some(80.0),
+                Some(50.0),
+                vec![
+                    ScheduleDestinationCapacity::new(mill.clone(), Some(50.0))
+                        .expect("capacity should be valid"),
+                ],
+                vec![
+                    ScheduleStockpileCapacity::new(stockpile.clone(), Some(60.0), Some(30.0))
+                        .expect("capacity should be valid"),
+                ],
+            )
+            .expect("capacity should be valid"),
+            LongTermSchedulePeriodCapacity::new(
+                "P2",
+                Some(30.0),
+                Some(30.0),
+                vec![
+                    ScheduleDestinationCapacity::new(mill.clone(), Some(30.0))
+                        .expect("capacity should be valid"),
+                ],
+                vec![
+                    ScheduleStockpileCapacity::new(stockpile.clone(), Some(60.0), Some(30.0))
+                        .expect("capacity should be valid"),
+                ],
+            )
+            .expect("capacity should be valid"),
+        ],
+        vec![
+            LongTermScheduleStockpile::new(stockpile.clone(), 20.0, Metadata::new())
+                .expect("stockpile should be valid"),
+        ],
+        vec![],
+        Metadata::new(),
+    )
+    .expect("schedule should be valid");
+
+    let report = evaluate_long_term_schedule_material_flows(&schedule)
+        .expect("material flow report should evaluate");
+
+    assert_eq!(report.period_flows.len(), 2);
+    assert_eq!(report.period_flows[0].period_label, "P1");
+    assert_eq!(report.period_flows[0].mined_tonnage, 70.0);
+    assert_eq!(report.period_flows[0].destination_tonnage["mill"], 40.0);
+    assert_eq!(report.period_flows[0].stockpile_deposits["sp-main"], 30.0);
+    assert!(report.period_flows[0].stockpile_reclaims.is_empty());
+
+    assert_eq!(report.period_flows[1].period_label, "P2");
+    assert_eq!(report.period_flows[1].destination_tonnage["mill"], 25.0);
+    assert_eq!(report.period_flows[1].stockpile_reclaims["sp-main"], 25.0);
+
+    assert_eq!(report.stockpile_balances.len(), 2);
+    assert_eq!(report.stockpile_balances[0].opening_tonnage, 20.0);
+    assert_eq!(report.stockpile_balances[0].closing_tonnage, 50.0);
+    assert_eq!(report.stockpile_balances[1].opening_tonnage, 50.0);
+    assert_eq!(report.stockpile_balances[1].closing_tonnage, 25.0);
+    assert!(report.violations.is_empty());
+}
+
+#[test]
+fn material_flow_report_surfaces_destination_and_stockpile_violations() {
+    let mill = ScheduleDestinationId::new("mill").expect("destination should be valid");
+    let stockpile = ScheduleStockpileId::new("sp-main").expect("stockpile should be valid");
+    let schedule = LongTermSchedule::new(
+        ScenarioId::new("routing-violations").expect("scenario should be valid"),
+        ModelId::new("routing-model").expect("model should be valid"),
+        vec![
+            LongTermScheduleEntry::new(
+                "P1",
+                Some("phase-a".to_owned()),
+                Some(0),
+                Some(100),
+                35.0,
+                3,
+                Some(mill.clone()),
+                None,
+                vec![],
+            )
+            .expect("entry should be valid"),
+            LongTermScheduleEntry::new(
+                "P1",
+                Some("phase-a".to_owned()),
+                Some(0),
+                Some(100),
+                40.0,
+                4,
+                None,
+                Some(stockpile.clone()),
+                vec![],
+            )
+            .expect("entry should be valid"),
+            LongTermScheduleEntry::new_with_reclaim(
+                "P2",
+                None,
+                None,
+                None,
+                60.0,
+                6,
+                Some(mill.clone()),
+                None,
+                Some(stockpile.clone()),
+                vec![],
+            )
+            .expect("reclaim entry should be valid"),
+        ],
+        vec![
+            LongTermSchedulePeriodCapacity::new(
+                "P1",
+                Some(60.0),
+                Some(30.0),
+                vec![
+                    ScheduleDestinationCapacity::new(mill.clone(), Some(30.0))
+                        .expect("capacity should be valid"),
+                ],
+                vec![
+                    ScheduleStockpileCapacity::new(stockpile.clone(), Some(50.0), Some(20.0))
+                        .expect("capacity should be valid"),
+                ],
+            )
+            .expect("capacity should be valid"),
+            LongTermSchedulePeriodCapacity::new(
+                "P2",
+                Some(60.0),
+                Some(40.0),
+                vec![
+                    ScheduleDestinationCapacity::new(mill.clone(), Some(40.0))
+                        .expect("capacity should be valid"),
+                ],
+                vec![
+                    ScheduleStockpileCapacity::new(stockpile.clone(), Some(50.0), Some(20.0))
+                        .expect("capacity should be valid"),
+                ],
+            )
+            .expect("capacity should be valid"),
+        ],
+        vec![
+            LongTermScheduleStockpile::new(stockpile.clone(), 10.0, Metadata::new())
+                .expect("stockpile should be valid"),
+        ],
+        vec![],
+        Metadata::new(),
+    )
+    .expect("schedule should be valid");
+
+    let report = evaluate_long_term_schedule_material_flows(&schedule)
+        .expect("material flow report should evaluate");
+    let violation_codes = report
+        .violations
+        .iter()
+        .map(|violation| violation.code)
+        .collect::<Vec<_>>();
+
+    assert!(violation_codes.contains(&LongTermScheduleViolationCode::ExceedsMineCapacity));
+    assert!(violation_codes.contains(&LongTermScheduleViolationCode::ExceedsPlantCapacity));
+    assert!(violation_codes.contains(&LongTermScheduleViolationCode::ExceedsDestinationCapacity));
+    assert!(violation_codes.contains(&LongTermScheduleViolationCode::ExceedsStockpileReclaim));
+    assert!(violation_codes.contains(&LongTermScheduleViolationCode::InvalidStockpileBalance));
 }
 
 #[test]

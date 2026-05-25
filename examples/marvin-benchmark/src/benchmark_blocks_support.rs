@@ -169,10 +169,7 @@ pub fn read_benchmark_blocks(
     BlockModel::new_sparse(grid, schema, metadata, materialized_linear_indices, columns)
 }
 
-fn read_benchmark_rows(
-    path: &Path,
-    file_label: &str,
-) -> Result<Vec<BenchmarkBlockRow>, MineError> {
+fn read_benchmark_rows(path: &Path, file_label: &str) -> Result<Vec<BenchmarkBlockRow>, MineError> {
     let file = File::open(path).map_err(|error| MineError::Io {
         message: format!("unable to open {file_label} file: {error}"),
     })?;
@@ -223,17 +220,17 @@ fn blocks_file_label(path: &Path) -> String {
 
 fn parse_i64_field(value: &str, row_number: usize, field_name: &str) -> Result<i64, MineError> {
     value.parse::<i64>().map_err(|error| MineError::Io {
-        message: format!("blocks row {row_number} contains invalid integer in {field_name}: {error}"),
+        message: format!(
+            "blocks row {row_number} contains invalid integer in {field_name}: {error}"
+        ),
     })
 }
 
-fn parse_usize_field(
-    value: &str,
-    row_number: usize,
-    field_name: &str,
-) -> Result<usize, MineError> {
+fn parse_usize_field(value: &str, row_number: usize, field_name: &str) -> Result<usize, MineError> {
     value.parse::<usize>().map_err(|error| MineError::Io {
-        message: format!("blocks row {row_number} contains invalid grid index in {field_name}: {error}"),
+        message: format!(
+            "blocks row {row_number} contains invalid grid index in {field_name}: {error}"
+        ),
     })
 }
 

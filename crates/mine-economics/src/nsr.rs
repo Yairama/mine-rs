@@ -131,9 +131,7 @@ pub fn compute_ev(nsr_total: f64, params: &EvParameters) -> Result<EvResult, Min
             "NSR total must be finite",
         ));
     }
-    if !params.reference_recovery.is_finite()
-        || !(0.0..=1.0).contains(&params.reference_recovery)
-    {
+    if !params.reference_recovery.is_finite() || !(0.0..=1.0).contains(&params.reference_recovery) {
         return Err(MineError::invalid_parameter(
             "reference_recovery",
             "reference recovery must be finite and between 0.0 and 1.0",

@@ -103,17 +103,15 @@ impl MaxClosureGraph {
     /// Retorna los arcos de sumidero.
     #[must_use]
     pub fn sink_arcs(&self) -> impl Iterator<Item = &MaxClosureArc> {
-        self.arcs
-            .iter()
-            .filter(|a| a.to == MaxClosureNodeId::Sink)
+        self.arcs.iter().filter(|a| a.to == MaxClosureNodeId::Sink)
     }
 
     /// Retorna los arcos de precedencia.
     #[must_use]
     pub fn precedence_arcs(&self) -> impl Iterator<Item = &MaxClosureArc> {
-        self.arcs.iter().filter(|a| {
-            a.from != MaxClosureNodeId::Source && a.to != MaxClosureNodeId::Sink
-        })
+        self.arcs
+            .iter()
+            .filter(|a| a.from != MaxClosureNodeId::Source && a.to != MaxClosureNodeId::Sink)
     }
 }
 
@@ -226,8 +224,7 @@ pub fn verify_closure(
     selected_blocks: &[usize],
     precedence_graph: &PrecedenceGraph,
 ) -> Result<(), MineError> {
-    let selected_set: std::collections::BTreeSet<usize> =
-        selected_blocks.iter().copied().collect();
+    let selected_set: std::collections::BTreeSet<usize> = selected_blocks.iter().copied().collect();
 
     for edge in precedence_graph.edges() {
         let (PrecedenceNode::Block(pred_idx), PrecedenceNode::Block(succ_idx)) =
@@ -348,9 +345,10 @@ mod tests {
     #[test]
     fn bench_and_phase_nodes_are_ignored_in_precedence_arcs() {
         let weights = BTreeMap::from([(0usize, 5.0_f64)]);
-        let graph = PrecedenceGraph::new(vec![
-            PrecedenceEdge::new(PrecedenceNode::Bench(100), PrecedenceNode::Block(0)),
-        ])
+        let graph = PrecedenceGraph::new(vec![PrecedenceEdge::new(
+            PrecedenceNode::Bench(100),
+            PrecedenceNode::Block(0),
+        )])
         .expect("graph should be valid");
         let closure_graph =
             build_max_closure_graph(&weights, &graph).expect("should build closure graph");

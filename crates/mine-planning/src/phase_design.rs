@@ -8,10 +8,14 @@
 //! Este módulo implementa los contratos serializables para `PushbackPlan` y `PhaseDesign`,
 //! con una ruta determinista para derivarlos desde un `PitShellSet`.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use mine_core::MineError;
 use serde::{Deserialize, Serialize};
 
+use crate::benches::BenchAssignment;
 use crate::pit_shells::PitShellSet;
+use crate::precedence::{PrecedenceGraph, PrecedenceNode};
 
 // ── Reglas de anidamiento y acceso ────────────────────────────────────────────
 
@@ -70,6 +74,8 @@ pub struct PhaseDesign {
     pub shell_index: Option<usize>,
     /// Revenue factor del shell fuente (si aplica).
     pub revenue_factor: Option<f64>,
+    /// Banco fuente de la fase cuando se deriva desde asignaciones de bench.
+    pub bench: Option<i64>,
     /// Bloques pertenecientes a esta fase (índices lineales).
     pub block_indices: Vec<usize>,
     /// Número de bloques.
@@ -166,6 +172,7 @@ pub fn derive_pushbacks_from_nested_shells(
             pushback_index: shell_idx,
             shell_index: Some(shell_idx),
             revenue_factor: Some(shell.revenue_factor),
+            bench: None,
             block_indices: incremental,
             block_count,
             total_tonnage: tonnage,
@@ -194,6 +201,225 @@ pub fn derive_pushbacks_from_nested_shells(
             "Predecessor relationships are set to strictly sequential (inner shell first); override nesting_rules for alternative sequencing.".to_owned(),
         ],
     })
+}
+
+/// Deriva fases auditables desde shells anidados, benches y precedencias bloque a bloque.
+///
+/// Reglas de esta primera ruta:
+/// - cada shell incremental se subdivide por bench;
+/// - las precedencias intra-shell entre benches se infieren desde `precedence_graph`;
+/// - entre shells consecutivos se usa una secuencia conservadora: todo phase del shell `k`
+///   depende de las fases del shell `k-1`.
+pub fn derive_phase_design_from_nested_shells(
+    shell_set: &PitShellSet,
+    bench_assignments: &[BenchAssignment],
+    precedence_graph: &PrecedenceGraph,
+    tonnage_per_block: Option<&[f64]>,
+    nesting_rules: NestingAccessRules,
+) -> Result<PushbackPlan, MineError> {
+    if shell_set.shells.is_empty() {
+        return Err(MineError::invalid_parameter(
+            "shell_set",
+            "phase design requires at least one shell",
+        ));
+    }
+
+    let bench_by_block = build_bench_lookup(bench_assignments)?;
+    let mut phases = Vec::new();
+    let mut prev_shell_blocks = BTreeSet::new();
+    let mut total_tonnage_acc = 0.0_f64;
+    let mut total_block_count = 0usize;
+    let mut previous_shell_phase_ids = Vec::<String>::new();
+
+    for (shell_idx, shell) in shell_set.shells.iter().enumerate() {
+        let current_blocks = shell
+            .selected_blocks
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>();
+        let incremental_blocks = current_blocks
+            .difference(&prev_shell_blocks)
+            .copied()
+            .collect::<Vec<_>>();
+        let grouped_by_bench = group_blocks_by_bench(&incremental_blocks, &bench_by_block)?;
+
+        let mut phase_ids_by_bench = BTreeMap::<i64, String>::new();
+        let mut bench_phase_blocks = BTreeMap::<i64, BTreeSet<usize>>::new();
+
+        for (&bench, blocks) in grouped_by_bench.iter().rev() {
+            let mut block_indices = blocks.clone();
+            block_indices.sort_unstable();
+            let total_tonnage = tonnage_per_block.map(|tonnes| {
+                block_indices
+                    .iter()
+                    .filter_map(|&linear_index| tonnes.get(linear_index).copied())
+                    .sum::<f64>()
+            });
+            if let Some(total_tonnage) = total_tonnage {
+                total_tonnage_acc += total_tonnage;
+            }
+            total_block_count += block_indices.len();
+
+            let phase_id = format!("phase-s{shell_idx:02}-b{bench}");
+            phase_ids_by_bench.insert(bench, phase_id.clone());
+            bench_phase_blocks.insert(bench, block_indices.iter().copied().collect());
+            phases.push(PhaseDesign {
+                phase_id,
+                pushback_index: shell_idx,
+                shell_index: Some(shell_idx),
+                revenue_factor: Some(shell.revenue_factor),
+                bench: Some(bench),
+                block_indices: block_indices.clone(),
+                block_count: block_indices.len(),
+                total_tonnage,
+                predecessor_phase_ids: Vec::new(),
+            });
+        }
+
+        let intra_shell_predecessors = build_intra_shell_predecessors(
+            precedence_graph,
+            &bench_by_block,
+            &incremental_blocks,
+            &phase_ids_by_bench,
+        );
+
+        let mut ordered_benches = grouped_by_bench.keys().copied().collect::<Vec<_>>();
+        ordered_benches.sort_by(|left, right| right.cmp(left));
+
+        for (position, bench) in ordered_benches.iter().enumerate() {
+            let phase_id = phase_ids_by_bench
+                .get(bench)
+                .expect("phase id must exist for every bench");
+            let mut predecessor_phase_ids = BTreeSet::<String>::new();
+
+            predecessor_phase_ids.extend(previous_shell_phase_ids.iter().cloned());
+
+            if let Some(inferred) = intra_shell_predecessors.get(phase_id) {
+                predecessor_phase_ids.extend(inferred.iter().cloned());
+            } else if position > 0 {
+                let upper_bench = ordered_benches[position - 1];
+                let fallback = phase_ids_by_bench
+                    .get(&upper_bench)
+                    .expect("fallback predecessor phase must exist");
+                predecessor_phase_ids.insert(fallback.clone());
+            }
+
+            if let Some(phase) = phases.iter_mut().find(|phase| phase.phase_id == *phase_id) {
+                phase.predecessor_phase_ids = predecessor_phase_ids.into_iter().collect();
+            }
+        }
+
+        previous_shell_phase_ids = ordered_benches
+            .iter()
+            .map(|bench| {
+                phase_ids_by_bench
+                    .get(bench)
+                    .expect("phase id must exist for every bench")
+                    .clone()
+            })
+            .collect();
+        prev_shell_blocks = current_blocks;
+    }
+
+    let has_tonnage = tonnage_per_block.is_some();
+    let phase_count = phases.len();
+
+    Ok(PushbackPlan {
+        phases,
+        phase_count,
+        total_block_count,
+        total_tonnage: if has_tonnage {
+            Some(total_tonnage_acc)
+        } else {
+            None
+        },
+        nesting_rules,
+        limitations: vec![
+            "Each shell increment is split by bench; no geometric sub-phasing inside a bench is attempted.".to_owned(),
+            "Cross-shell sequencing is conservative: every phase in shell k depends on the phases derived from shell k-1.".to_owned(),
+            "Bench continuity is inferred from explicit block precedence when available; otherwise the design falls back to descending bench order within the same shell.".to_owned(),
+        ],
+    })
+}
+
+fn build_bench_lookup(
+    bench_assignments: &[BenchAssignment],
+) -> Result<BTreeMap<usize, i64>, MineError> {
+    let mut lookup = BTreeMap::new();
+    for assignment in bench_assignments {
+        if lookup
+            .insert(assignment.linear_index, assignment.bench)
+            .is_some()
+        {
+            return Err(MineError::validation(format!(
+                "duplicate bench assignment for linear index `{}`",
+                assignment.linear_index
+            )));
+        }
+    }
+    Ok(lookup)
+}
+
+fn group_blocks_by_bench(
+    block_indices: &[usize],
+    bench_by_block: &BTreeMap<usize, i64>,
+) -> Result<BTreeMap<i64, Vec<usize>>, MineError> {
+    let mut grouped = BTreeMap::<i64, Vec<usize>>::new();
+    for &block_index in block_indices {
+        let Some(&bench) = bench_by_block.get(&block_index) else {
+            return Err(MineError::validation(format!(
+                "missing bench assignment for shell block `{block_index}`"
+            )));
+        };
+        grouped.entry(bench).or_default().push(block_index);
+    }
+    Ok(grouped)
+}
+
+fn build_intra_shell_predecessors(
+    precedence_graph: &PrecedenceGraph,
+    bench_by_block: &BTreeMap<usize, i64>,
+    incremental_blocks: &[usize],
+    phase_ids_by_bench: &BTreeMap<i64, String>,
+) -> BTreeMap<String, BTreeSet<String>> {
+    let incremental_set = incremental_blocks.iter().copied().collect::<BTreeSet<_>>();
+    let mut predecessors = BTreeMap::<String, BTreeSet<String>>::new();
+
+    for edge in precedence_graph.edges() {
+        let (PrecedenceNode::Block(predecessor), PrecedenceNode::Block(successor)) =
+            (edge.predecessor(), edge.successor())
+        else {
+            continue;
+        };
+
+        if !incremental_set.contains(predecessor) || !incremental_set.contains(successor) {
+            continue;
+        }
+
+        let Some(&predecessor_bench) = bench_by_block.get(predecessor) else {
+            continue;
+        };
+        let Some(&successor_bench) = bench_by_block.get(successor) else {
+            continue;
+        };
+        if predecessor_bench == successor_bench {
+            continue;
+        }
+
+        let Some(predecessor_phase_id) = phase_ids_by_bench.get(&predecessor_bench) else {
+            continue;
+        };
+        let Some(successor_phase_id) = phase_ids_by_bench.get(&successor_bench) else {
+            continue;
+        };
+
+        predecessors
+            .entry(successor_phase_id.clone())
+            .or_default()
+            .insert(predecessor_phase_id.clone());
+    }
+
+    predecessors
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -230,8 +456,9 @@ mod tests {
     #[test]
     fn derive_pushbacks_produces_incremental_phases() {
         let shell_set = make_shell_set_two_shells();
-        let plan = derive_pushbacks_from_nested_shells(&shell_set, None, NestingAccessRules::default())
-            .expect("derivation should succeed");
+        let plan =
+            derive_pushbacks_from_nested_shells(&shell_set, None, NestingAccessRules::default())
+                .expect("derivation should succeed");
 
         assert_eq!(plan.phase_count, 2);
         // Phase 0: blocks [0, 1] (innermost shell)
@@ -250,8 +477,9 @@ mod tests {
     #[test]
     fn total_block_count_matches_union_of_shells() {
         let shell_set = make_shell_set_two_shells();
-        let plan = derive_pushbacks_from_nested_shells(&shell_set, None, NestingAccessRules::default())
-            .expect("derivation should succeed");
+        let plan =
+            derive_pushbacks_from_nested_shells(&shell_set, None, NestingAccessRules::default())
+                .expect("derivation should succeed");
 
         assert_eq!(plan.total_block_count, 4);
     }
@@ -295,8 +523,12 @@ mod tests {
     #[test]
     fn phase_design_is_serializable() {
         let shell_set = make_shell_set_two_shells();
-        let plan = derive_pushbacks_from_nested_shells(&shell_set, None, NestingAccessRules::strict_sequential())
-            .expect("derivation should succeed");
+        let plan = derive_pushbacks_from_nested_shells(
+            &shell_set,
+            None,
+            NestingAccessRules::strict_sequential(),
+        )
+        .expect("derivation should succeed");
 
         let json = serde_json::to_string(&plan).expect("plan should serialize");
         assert!(json.contains("phase-00"));

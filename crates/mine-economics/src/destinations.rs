@@ -344,18 +344,25 @@ mod tests {
             DestinationKind::Mill,
             2.0,
             8.0,
-            vec![DestinationRecovery::new(
-                ColumnId::new("cu").expect("column id should be valid"),
-                0.88,
+            vec![
+                DestinationRecovery::new(
+                    ColumnId::new("cu").expect("column id should be valid"),
+                    0.88,
+                )
+                .expect("recovery should be valid"),
+            ],
+            vec![
+                DestinationPayability::new(
+                    ColumnId::new("cu").expect("column id should be valid"),
+                    0.97,
+                )
+                .expect("payability should be valid"),
+            ],
+            DestinationCapacity::new(
+                Some(5_000_000.0),
+                MeasurementUnit::new("t").expect("t is valid"),
             )
-            .expect("recovery should be valid")],
-            vec![DestinationPayability::new(
-                ColumnId::new("cu").expect("column id should be valid"),
-                0.97,
-            )
-            .expect("payability should be valid")],
-            DestinationCapacity::new(Some(5_000_000.0), MeasurementUnit::new("t").expect("t is valid"))
-                .expect("capacity should be valid"),
+            .expect("capacity should be valid"),
             std::collections::BTreeMap::from([("cu".to_owned(), 9000.0)]),
         )
         .expect("destination should be valid")
@@ -428,8 +435,7 @@ mod tests {
         let waste = waste_destination();
         let mill_id = DestinationId::new("mill").expect("id should be valid");
 
-        let set = DestinationAssumptionSet::new(vec![mill, waste])
-            .expect("set should be valid");
+        let set = DestinationAssumptionSet::new(vec![mill, waste]).expect("set should be valid");
 
         let found = set.get(&mill_id).expect("mill should be found");
         assert_eq!(found.kind(), DestinationKind::Mill);
@@ -448,4 +454,3 @@ mod tests {
         assert_eq!(set, deserialized);
     }
 }
-

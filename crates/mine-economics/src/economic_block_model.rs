@@ -74,10 +74,7 @@ impl EconomicBlockModel {
     /// - la columna de tonelaje no existe o no es de tipo float
     /// - alguna columna de ley no existe o no es de tipo float
     /// - la valuación falla (destinos vacíos, precios inválidos, etc.)
-    pub fn build(
-        model: BlockModel,
-        config: EconomicBlockModelConfig,
-    ) -> Result<Self, MineError> {
+    pub fn build(model: BlockModel, config: EconomicBlockModelConfig) -> Result<Self, MineError> {
         validate_float_column(&model, &config.tonnage_column, "tonnage_column")?;
         for grade_col in &config.grade_columns {
             validate_float_column(&model, grade_col, "grade_column")?;
@@ -94,7 +91,8 @@ impl EconomicBlockModel {
         let mut block_summaries = Vec::with_capacity(n_blocks);
 
         for (pos, &tonnage) in tonnage_data.iter().enumerate() {
-            let linear_index = model.linear_index_at(pos)
+            let linear_index = model
+                .linear_index_at(pos)
                 .expect("position must be within materialized bounds");
 
             let mut grades = BTreeMap::new();
@@ -229,7 +227,7 @@ mod tests {
     };
 
     use crate::{
-        DestinationAssumptions, DestinationAssumptionSet, DestinationCapacity, DestinationId,
+        DestinationAssumptionSet, DestinationAssumptions, DestinationCapacity, DestinationId,
         DestinationKind, DestinationPayability, DestinationRecovery,
     };
 
@@ -250,8 +248,20 @@ mod tests {
         let unit_t = MeasurementUnit::new("t").expect("t is valid");
 
         let schema = ColumnSchemaSet::from_columns(vec![
-            ColumnSchema::new(cu.clone(), ColumnLogicalType::Float, Some(unit_pct), false, ColumnMiningRole::Grade),
-            ColumnSchema::new(ton.clone(), ColumnLogicalType::Float, Some(unit_t), false, ColumnMiningRole::Tonnage),
+            ColumnSchema::new(
+                cu.clone(),
+                ColumnLogicalType::Float,
+                Some(unit_pct),
+                false,
+                ColumnMiningRole::Grade,
+            ),
+            ColumnSchema::new(
+                ton.clone(),
+                ColumnLogicalType::Float,
+                Some(unit_t),
+                false,
+                ColumnMiningRole::Tonnage,
+            ),
         ])
         .expect("schema should be valid");
 
@@ -272,7 +282,8 @@ mod tests {
             8.0,
             vec![DestinationRecovery::new(cu.clone(), 0.88).expect("recovery should be valid")],
             vec![DestinationPayability::new(cu.clone(), 0.97).expect("payability should be valid")],
-            DestinationCapacity::new(None, MeasurementUnit::new("t").expect("t is valid")).expect("capacity should be valid"),
+            DestinationCapacity::new(None, MeasurementUnit::new("t").expect("t is valid"))
+                .expect("capacity should be valid"),
             BTreeMap::from([("cu".to_owned(), 9000.0)]),
         )
         .expect("mill should be valid");
@@ -284,7 +295,8 @@ mod tests {
             0.0,
             vec![],
             vec![],
-            DestinationCapacity::new(None, MeasurementUnit::new("t").expect("t is valid")).expect("capacity should be valid"),
+            DestinationCapacity::new(None, MeasurementUnit::new("t").expect("t is valid"))
+                .expect("capacity should be valid"),
             BTreeMap::new(),
         )
         .expect("waste should be valid");

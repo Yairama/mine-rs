@@ -70,9 +70,7 @@ impl MultiDestinationBlockValuation {
     /// Retorna el resultado para un destino específico, o `None` si no está en la evaluación.
     #[must_use]
     pub fn for_destination(&self, id: &DestinationId) -> Option<&BlockDestinationValue> {
-        self.by_destination
-            .iter()
-            .find(|d| &d.destination_id == id)
+        self.by_destination.iter().find(|d| &d.destination_id == id)
     }
 }
 
@@ -124,7 +122,10 @@ pub fn value_block_by_destinations(
                 .ok_or_else(|| {
                     MineError::invalid_parameter(
                         "price_per_metal_unit",
-                        format!("no price configured for metal `{metal_key}` in destination `{}`", dest.id().as_str()),
+                        format!(
+                            "no price configured for metal `{metal_key}` in destination `{}`",
+                            dest.id().as_str()
+                        ),
                     )
                 })?;
 
@@ -177,7 +178,7 @@ mod tests {
     use mine_core::{ColumnId, MeasurementUnit};
 
     use crate::{
-        DestinationAssumptions, DestinationAssumptionSet, DestinationCapacity, DestinationId,
+        DestinationAssumptionSet, DestinationAssumptions, DestinationCapacity, DestinationId,
         DestinationKind, DestinationPayability, DestinationRecovery,
     };
 
@@ -190,10 +191,8 @@ mod tests {
             DestinationKind::Mill,
             2.0,
             8.0,
-            vec![DestinationRecovery::new(cu.clone(), 0.88)
-                .expect("recovery should be valid")],
-            vec![DestinationPayability::new(cu.clone(), 0.97)
-                .expect("payability should be valid")],
+            vec![DestinationRecovery::new(cu.clone(), 0.88).expect("recovery should be valid")],
+            vec![DestinationPayability::new(cu.clone(), 0.97).expect("payability should be valid")],
             DestinationCapacity::new(None, MeasurementUnit::new("t").expect("t is valid"))
                 .expect("capacity should be valid"),
             BTreeMap::from([("cu".to_owned(), 9000.0)]),
@@ -248,8 +247,7 @@ mod tests {
 
     #[test]
     fn block_value_is_margin_times_tonnage() {
-        let dests = DestinationAssumptionSet::new(vec![mill_dest()])
-            .expect("set should be valid");
+        let dests = DestinationAssumptionSet::new(vec![mill_dest()]).expect("set should be valid");
 
         let block = block_with_grade(0.5, 2000.0);
         let result = value_block_by_destinations(&block, &dests).expect("valuation should succeed");
@@ -267,15 +265,15 @@ mod tests {
 
     #[test]
     fn empty_destination_set_returns_error() {
-        let dests = DestinationAssumptionSet::new(vec![]).expect("empty set should be constructible");
+        let dests =
+            DestinationAssumptionSet::new(vec![]).expect("empty set should be constructible");
         let block = block_with_grade(1.0, 1000.0);
         assert!(value_block_by_destinations(&block, &dests).is_err());
     }
 
     #[test]
     fn block_with_no_matching_grades_uses_zero_grade() {
-        let dests = DestinationAssumptionSet::new(vec![mill_dest()])
-            .expect("set should be valid");
+        let dests = DestinationAssumptionSet::new(vec![mill_dest()]).expect("set should be valid");
 
         // Block has no "cu" grade — should default to 0.0, not error.
         let block = BlockGrades::new(500.0, BTreeMap::new()).expect("block should be valid");

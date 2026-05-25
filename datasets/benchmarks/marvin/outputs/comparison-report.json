@@ -2,6 +2,7 @@
   "dataset_dir": "datasets\\benchmarks\\marvin",
   "reference_prec_path": "datasets\\benchmarks\\marvin\\references\\marvin.prec",
   "reference_upit_solution_path": "datasets\\benchmarks\\marvin\\references\\marvin_upit.sol",
+  "reference_upit_objective_path": "datasets\\benchmarks\\marvin\\references\\marvin.upit",
   "reference_cpit_problem_path": "datasets\\benchmarks\\marvin\\references\\marvin.cpit",
   "reference_cpit_solution_path": "datasets\\benchmarks\\marvin\\references\\marvin_cpit_gmunoz120723.sol",
   "reference_pcpsp_problem_path": "datasets\\benchmarks\\marvin\\references\\marvin.pcpsp",
@@ -127,6 +128,12 @@
     "total_economic_objective": 1257385725.6420891,
     "total_tonnage": 800633423.3399775
   },
+  "exact_upit": {
+    "block_count": 8516,
+    "total_proc_profit_x_tonnage": 1157364258.1114736,
+    "total_economic_objective": 1415655436.1367428,
+    "total_tonnage": 527146593.8260307
+  },
   "upit_membership_comparison": {
     "shared_blocks": 8516,
     "reference_only_block_count": 0,
@@ -145,6 +152,14 @@
       1303,
       1304
     ]
+  },
+  "exact_upit_membership_comparison": {
+    "shared_blocks": 8516,
+    "reference_only_block_count": 0,
+    "candidate_only_block_count": 0,
+    "jaccard_index": 1.0,
+    "reference_only_block_examples": [],
+    "candidate_only_block_examples": []
   },
   "upit_metric_comparison": {
     "shared_metrics": [
@@ -187,6 +202,52 @@
         "absolute_tolerance": 0.0,
         "relative_tolerance": 0.0,
         "within_tolerance": false
+      }
+    ],
+    "reference_only_metrics": [],
+    "candidate_only_metrics": []
+  },
+  "exact_upit_metric_comparison": {
+    "shared_metrics": [
+      {
+        "metric": "block_count",
+        "reference_value": 8516.0,
+        "candidate_value": 8516.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": 0.0,
+        "relative_tolerance": 0.0,
+        "within_tolerance": true
+      },
+      {
+        "metric": "total_economic_objective",
+        "reference_value": 1415655436.1367428,
+        "candidate_value": 1415655436.1367428,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": 0.0,
+        "relative_tolerance": 0.0,
+        "within_tolerance": true
+      },
+      {
+        "metric": "total_proc_profit_x_tonnage",
+        "reference_value": 1157364258.1114736,
+        "candidate_value": 1157364258.1114736,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": 0.0,
+        "relative_tolerance": 0.0,
+        "within_tolerance": true
+      },
+      {
+        "metric": "total_tonnage",
+        "reference_value": 527146593.8260307,
+        "candidate_value": 527146593.8260307,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": 0.0,
+        "relative_tolerance": 0.0,
+        "within_tolerance": true
       }
     ],
     "reference_only_metrics": [],
@@ -336,15 +397,1653 @@
       ]
     }
   },
+  "mine_rs_end_to_end": {
+    "phase_count": 4,
+    "total_block_count": 13186,
+    "schedule_period_count": 20,
+    "schedule_entry_count": 42,
+    "schedule_violation_count": 0,
+    "total_tonnage": 800633423.3399811,
+    "total_cashflow": 1257385725.6416626,
+    "npv": 509299339.2747697,
+    "periods": [
+      {
+        "period_label": "P01",
+        "tonnage": 57328696.4187984,
+        "cashflow": -336762.43776009977,
+        "discounted_cashflow": -336762.43776009977
+      },
+      {
+        "period_label": "P02",
+        "tonnage": 57328696.4187984,
+        "cashflow": -336762.43776009977,
+        "discounted_cashflow": -306147.6706909998
+      },
+      {
+        "period_label": "P03",
+        "tonnage": 57328696.4187984,
+        "cashflow": -336762.43776009977,
+        "discounted_cashflow": -278316.0642645452
+      },
+      {
+        "period_label": "P04",
+        "tonnage": 57328696.4187984,
+        "cashflow": -336762.43776009977,
+        "discounted_cashflow": -253014.60387685927
+      },
+      {
+        "period_label": "P05",
+        "tonnage": 57328696.41879828,
+        "cashflow": -336762.43776008487,
+        "discounted_cashflow": -230013.27625168007
+      },
+      {
+        "period_label": "P06",
+        "tonnage": 56495515.75099859,
+        "cashflow": 96896646.05478501,
+        "discounted_cashflow": 60165193.66833176
+      },
+      {
+        "period_label": "P07",
+        "tonnage": 56495515.75099859,
+        "cashflow": 96896646.05478501,
+        "discounted_cashflow": 54695630.607574314
+      },
+      {
+        "period_label": "P08",
+        "tonnage": 56495515.75099859,
+        "cashflow": 96896646.05478501,
+        "discounted_cashflow": 49723300.552340284
+      },
+      {
+        "period_label": "P09",
+        "tonnage": 56495515.75099859,
+        "cashflow": 96896646.05478501,
+        "discounted_cashflow": 45203000.50212753
+      },
+      {
+        "period_label": "P10",
+        "tonnage": 56495515.75099851,
+        "cashflow": 96896646.0547849,
+        "discounted_cashflow": 41093636.82011588
+      },
+      {
+        "period_label": "P11",
+        "tonnage": 57883886.62599872,
+        "cashflow": 190940052.04113346,
+        "discounted_cashflow": 73615655.74778451
+      },
+      {
+        "period_label": "P12",
+        "tonnage": 57883886.62599872,
+        "cashflow": 190940052.04113346,
+        "discounted_cashflow": 66923323.40707683
+      },
+      {
+        "period_label": "P13",
+        "tonnage": 57883886.625998735,
+        "cashflow": 190940052.04113352,
+        "discounted_cashflow": 60839384.9155244
+      },
+      {
+        "period_label": "P14",
+        "tonnage": 57860702.613000095,
+        "cashflow": 201766151.43313748,
+        "discounted_cashflow": 58444467.106738366
+      },
+      {
+        "period_label": "P15",
+        "tonnage": 0.0,
+        "cashflow": 0.0,
+        "discounted_cashflow": 0.0
+      },
+      {
+        "period_label": "P16",
+        "tonnage": 0.0,
+        "cashflow": 0.0,
+        "discounted_cashflow": 0.0
+      },
+      {
+        "period_label": "P17",
+        "tonnage": 0.0,
+        "cashflow": 0.0,
+        "discounted_cashflow": 0.0
+      },
+      {
+        "period_label": "P18",
+        "tonnage": 0.0,
+        "cashflow": 0.0,
+        "discounted_cashflow": 0.0
+      },
+      {
+        "period_label": "P19",
+        "tonnage": 0.0,
+        "cashflow": 0.0,
+        "discounted_cashflow": 0.0
+      },
+      {
+        "period_label": "P20",
+        "tonnage": 0.0,
+        "cashflow": 0.0,
+        "discounted_cashflow": 0.0
+      }
+    ]
+  },
+  "mine_rs_vs_cpit_metric_comparison": {
+    "shared_metrics": [
+      {
+        "metric": "discounted_objective",
+        "reference_value": 820726047.9529905,
+        "candidate_value": 509299339.2747697,
+        "absolute_difference": 311426708.6782208,
+        "relative_difference": 0.37945269247267593,
+        "absolute_tolerance": 0.0,
+        "relative_tolerance": 0.0,
+        "within_tolerance": false
+      },
+      {
+        "metric": "max_mine_period_usage",
+        "reference_value": 58799906.5010002,
+        "candidate_value": 57883886.625998735,
+        "absolute_difference": 916019.8750014678,
+        "relative_difference": 0.01557859407456517,
+        "absolute_tolerance": 0.0,
+        "relative_tolerance": 0.0,
+        "within_tolerance": false
+      },
+      {
+        "metric": "unique_block_count",
+        "reference_value": 8516.0,
+        "candidate_value": 13186.0,
+        "absolute_difference": 4670.0,
+        "relative_difference": 0.5483795209018318,
+        "absolute_tolerance": 0.0,
+        "relative_tolerance": 0.0,
+        "within_tolerance": false
+      },
+      {
+        "metric": "used_period_count",
+        "reference_value": 16.0,
+        "candidate_value": 14.0,
+        "absolute_difference": 2.0,
+        "relative_difference": 0.125,
+        "absolute_tolerance": 0.0,
+        "relative_tolerance": 0.0,
+        "within_tolerance": false
+      }
+    ],
+    "reference_only_metrics": [],
+    "candidate_only_metrics": []
+  },
+  "mine_rs_vs_cpit_membership_comparison": {
+    "shared_assignments": 557,
+    "reference_only_assignment_count": 7959,
+    "candidate_only_assignment_count": 12629,
+    "jaccard_index": 0.02634192480491842,
+    "reference_only_assignment_examples": [
+      [
+        "P01",
+        37968
+      ],
+      [
+        "P01",
+        38332
+      ],
+      [
+        "P01",
+        38393
+      ],
+      [
+        "P01",
+        38515
+      ],
+      [
+        "P01",
+        38637
+      ],
+      [
+        "P01",
+        42347
+      ],
+      [
+        "P01",
+        42357
+      ],
+      [
+        "P01",
+        42358
+      ],
+      [
+        "P01",
+        42359
+      ],
+      [
+        "P01",
+        42408
+      ]
+    ],
+    "candidate_only_assignment_examples": [
+      [
+        "P01",
+        40825
+      ],
+      [
+        "P01",
+        40826
+      ],
+      [
+        "P01",
+        40827
+      ],
+      [
+        "P01",
+        40883
+      ],
+      [
+        "P01",
+        40884
+      ],
+      [
+        "P01",
+        40885
+      ],
+      [
+        "P01",
+        40886
+      ],
+      [
+        "P01",
+        40887
+      ],
+      [
+        "P01",
+        40888
+      ],
+      [
+        "P01",
+        40889
+      ]
+    ]
+  },
+  "mine_rs_vs_cpit_period_metric_comparison": {
+    "shared_metrics": [
+      {
+        "metric": "P01.block_count",
+        "reference_value": 1082.0,
+        "candidate_value": 897.0,
+        "absolute_difference": 185.0,
+        "relative_difference": 0.1709796672828096,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P01.discounted_objective",
+        "reference_value": 35651405.652014606,
+        "candidate_value": -336762.43776009977,
+        "absolute_difference": 35988168.089774705,
+        "relative_difference": 1.0094459792426465,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P01.tonnage",
+        "reference_value": 48142766.14099999,
+        "candidate_value": 57328696.4187984,
+        "absolute_difference": 9185930.277798414,
+        "relative_difference": 0.1908060340964781,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P02.block_count",
+        "reference_value": 288.0,
+        "candidate_value": 908.0,
+        "absolute_difference": 620.0,
+        "relative_difference": 2.1527777777777777,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P02.discounted_objective",
+        "reference_value": 90812392.32377553,
+        "candidate_value": -306147.6706909998,
+        "absolute_difference": 91118539.99446653,
+        "relative_difference": 1.0033712102815162,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P02.tonnage",
+        "reference_value": 20562801.049,
+        "candidate_value": 57328696.4187984,
+        "absolute_difference": 36765895.36979841,
+        "relative_difference": 1.7879808923982363,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P03.block_count",
+        "reference_value": 293.0,
+        "candidate_value": 874.0,
+        "absolute_difference": 581.0,
+        "relative_difference": 1.9829351535836177,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P03.discounted_objective",
+        "reference_value": 90094622.60288899,
+        "candidate_value": -278316.0642645452,
+        "absolute_difference": 90372938.66715354,
+        "relative_difference": 1.0030891528952985,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P03.tonnage",
+        "reference_value": 20737071.665999994,
+        "candidate_value": 57328696.4187984,
+        "absolute_difference": 36591624.75279841,
+        "relative_difference": 1.7645512028968469,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P04.block_count",
+        "reference_value": 289.0,
+        "candidate_value": 1164.0,
+        "absolute_difference": 875.0,
+        "relative_difference": 3.027681660899654,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P04.discounted_objective",
+        "reference_value": 82881177.61467943,
+        "candidate_value": -253014.60387685927,
+        "absolute_difference": 83134192.21855628,
+        "relative_difference": 1.003052739007319,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P04.tonnage",
+        "reference_value": 20604302.187,
+        "candidate_value": 57328696.4187984,
+        "absolute_difference": 36724394.2317984,
+        "relative_difference": 1.7823653477072936,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P05.block_count",
+        "reference_value": 308.0,
+        "candidate_value": 1714.0,
+        "absolute_difference": 1406.0,
+        "relative_difference": 4.564935064935065,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P05.discounted_objective",
+        "reference_value": 80578153.68844001,
+        "candidate_value": -230013.27625168007,
+        "absolute_difference": 80808166.96469168,
+        "relative_difference": 1.0028545364434762,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P05.tonnage",
+        "reference_value": 21921530.380999997,
+        "candidate_value": 57328696.41879828,
+        "absolute_difference": 35407166.037798285,
+        "relative_difference": 1.6151776551370094,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P06.block_count",
+        "reference_value": 288.0,
+        "candidate_value": 842.0,
+        "absolute_difference": 554.0,
+        "relative_difference": 1.9236111111111112,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P06.discounted_objective",
+        "reference_value": 95914105.31901515,
+        "candidate_value": 60165193.66833176,
+        "absolute_difference": 35748911.65068339,
+        "relative_difference": 0.3727179806534264,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P06.tonnage",
+        "reference_value": 20609600.17799999,
+        "candidate_value": 56495515.75099859,
+        "absolute_difference": 35885915.5729986,
+        "relative_difference": 1.7412232776502636,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P07.block_count",
+        "reference_value": 323.0,
+        "candidate_value": 858.0,
+        "absolute_difference": 535.0,
+        "relative_difference": 1.6563467492260062,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P07.discounted_objective",
+        "reference_value": 101210004.95547095,
+        "candidate_value": 54695630.607574314,
+        "absolute_difference": 46514374.347896636,
+        "relative_difference": 0.45958276919718977,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P07.tonnage",
+        "reference_value": 22423606.708999947,
+        "candidate_value": 56495515.75099859,
+        "absolute_difference": 34071909.04199864,
+        "relative_difference": 1.5194660468390897,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P08.block_count",
+        "reference_value": 539.0,
+        "candidate_value": 866.0,
+        "absolute_difference": 327.0,
+        "relative_difference": 0.6066790352504638,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P08.discounted_objective",
+        "reference_value": 53849883.9244165,
+        "candidate_value": 49723300.552340284,
+        "absolute_difference": 4126583.3720762134,
+        "relative_difference": 0.07663123987171952,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P08.tonnage",
+        "reference_value": 34018762.738999896,
+        "candidate_value": 56495515.75099859,
+        "absolute_difference": 22476753.01199869,
+        "relative_difference": 0.6607163577478031,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P09.block_count",
+        "reference_value": 477.0,
+        "candidate_value": 877.0,
+        "absolute_difference": 400.0,
+        "relative_difference": 0.8385744234800838,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P09.discounted_objective",
+        "reference_value": 48912921.915259406,
+        "candidate_value": 45203000.50212753,
+        "absolute_difference": 3709921.413131878,
+        "relative_difference": 0.0758474707268406,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P09.tonnage",
+        "reference_value": 30951408.669999897,
+        "candidate_value": 56495515.75099859,
+        "absolute_difference": 25544107.08099869,
+        "relative_difference": 0.8252970762444711,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P10.block_count",
+        "reference_value": 706.0,
+        "candidate_value": 845.0,
+        "absolute_difference": 139.0,
+        "relative_difference": 0.19688385269121814,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P10.discounted_objective",
+        "reference_value": 36634626.96068788,
+        "candidate_value": 41093636.82011588,
+        "absolute_difference": 4459009.859427996,
+        "relative_difference": 0.12171571623242945,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P10.tonnage",
+        "reference_value": 44051409.100999855,
+        "candidate_value": 56495515.75099851,
+        "absolute_difference": 12444106.649998657,
+        "relative_difference": 0.28249054693045467,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P11.block_count",
+        "reference_value": 481.0,
+        "candidate_value": 831.0,
+        "absolute_difference": 350.0,
+        "relative_difference": 0.7276507276507277,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P11.discounted_objective",
+        "reference_value": 33382545.358300775,
+        "candidate_value": 73615655.74778451,
+        "absolute_difference": 40233110.389483735,
+        "relative_difference": 1.2052139810686882,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P11.tonnage",
+        "reference_value": 31284031.820999853,
+        "candidate_value": 57883886.62599872,
+        "absolute_difference": 26599854.804998867,
+        "relative_difference": 0.8502693948528506,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P12.block_count",
+        "reference_value": 635.0,
+        "candidate_value": 840.0,
+        "absolute_difference": 205.0,
+        "relative_difference": 0.3228346456692913,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P12.discounted_objective",
+        "reference_value": 26752790.974346194,
+        "candidate_value": 66923323.40707683,
+        "absolute_difference": 40170532.43273063,
+        "relative_difference": 1.5015454825349246,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P12.tonnage",
+        "reference_value": 39982794.66499986,
+        "candidate_value": 57883886.62599872,
+        "absolute_difference": 17901091.960998863,
+        "relative_difference": 0.44771987828727544,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P13.block_count",
+        "reference_value": 762.0,
+        "candidate_value": 851.0,
+        "absolute_difference": 89.0,
+        "relative_difference": 0.1167979002624672,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P13.discounted_objective",
+        "reference_value": 20215840.52010286,
+        "candidate_value": 60839384.9155244,
+        "absolute_difference": 40623544.39542154,
+        "relative_difference": 2.0094907434110905,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P13.tonnage",
+        "reference_value": 46665891.68499998,
+        "candidate_value": 57883886.625998735,
+        "absolute_difference": 11217994.940998755,
+        "relative_difference": 0.24038959796850093,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P14.block_count",
+        "reference_value": 756.0,
+        "candidate_value": 819.0,
+        "absolute_difference": 63.0,
+        "relative_difference": 0.08333333333333333,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P14.discounted_objective",
+        "reference_value": 14418930.002041908,
+        "candidate_value": 58444467.106738366,
+        "absolute_difference": 44025537.10469646,
+        "relative_difference": 3.05331512799229,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P14.tonnage",
+        "reference_value": 46343521.954,
+        "candidate_value": 57860702.613000095,
+        "absolute_difference": 11517180.659000091,
+        "relative_difference": 0.24851759584504388,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P15.block_count",
+        "reference_value": 964.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 964.0,
+        "relative_difference": 1.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P15.discounted_objective",
+        "reference_value": 6867437.7365018865,
+        "candidate_value": 0.0,
+        "absolute_difference": 6867437.7365018865,
+        "relative_difference": 1.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P15.tonnage",
+        "reference_value": 58799906.5010002,
+        "candidate_value": 0.0,
+        "absolute_difference": 58799906.5010002,
+        "relative_difference": 1.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P16.block_count",
+        "reference_value": 325.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 325.0,
+        "relative_difference": 1.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P16.discounted_objective",
+        "reference_value": 2549208.40503607,
+        "candidate_value": 0.0,
+        "absolute_difference": 2549208.40503607,
+        "relative_difference": 1.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P16.tonnage",
+        "reference_value": 20047188.378999934,
+        "candidate_value": 0.0,
+        "absolute_difference": 20047188.378999934,
+        "relative_difference": 1.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P17.block_count",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P17.discounted_objective",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P17.tonnage",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P18.block_count",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P18.discounted_objective",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P18.tonnage",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P19.block_count",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P19.discounted_objective",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P19.tonnage",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P20.block_count",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P20.discounted_objective",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P20.tonnage",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      }
+    ],
+    "reference_only_metrics": [],
+    "candidate_only_metrics": []
+  },
+  "mine_rs_vs_pcpsp_metric_comparison": {
+    "shared_metrics": [
+      {
+        "metric": "discounted_objective",
+        "reference_value": 885968061.4911749,
+        "candidate_value": 429257929.08169574,
+        "absolute_difference": 456710132.4094792,
+        "relative_difference": 0.5154927725507275,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "max_mine_period_usage",
+        "reference_value": 59989507.49363996,
+        "candidate_value": 58024693.138000265,
+        "absolute_difference": 1964814.3556396961,
+        "relative_difference": 0.032752633547591704,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "max_process_period_usage",
+        "reference_value": 20000000.062586267,
+        "candidate_value": 19998920.097999986,
+        "absolute_difference": 1079.9645862802863,
+        "relative_difference": 0.00005399822914503694,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "unique_block_count",
+        "reference_value": 8516.0,
+        "candidate_value": 13186.0,
+        "absolute_difference": 4670.0,
+        "relative_difference": 0.5483795209018318,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "used_destination_count",
+        "reference_value": 2.0,
+        "candidate_value": 2.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "used_period_count",
+        "reference_value": 14.0,
+        "candidate_value": 14.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      }
+    ],
+    "reference_only_metrics": [],
+    "candidate_only_metrics": []
+  },
+  "mine_rs_vs_pcpsp_membership_comparison": {
+    "shared_assignments": 435,
+    "reference_only_assignment_count": 8094,
+    "candidate_only_assignment_count": 12751,
+    "jaccard_index": 0.02044172932330827,
+    "reference_only_assignment_examples": [
+      [
+        "P01.D00",
+        34428
+      ],
+      [
+        "P01.D00",
+        38027
+      ],
+      [
+        "P01.D00",
+        38088
+      ],
+      [
+        "P01.D00",
+        38089
+      ],
+      [
+        "P01.D00",
+        38150
+      ],
+      [
+        "P01.D00",
+        41687
+      ],
+      [
+        "P01.D00",
+        41690
+      ],
+      [
+        "P01.D00",
+        41748
+      ],
+      [
+        "P01.D00",
+        41749
+      ],
+      [
+        "P01.D00",
+        41750
+      ]
+    ],
+    "candidate_only_assignment_examples": [
+      [
+        "P01.D00",
+        40825
+      ],
+      [
+        "P01.D00",
+        40826
+      ],
+      [
+        "P01.D00",
+        40827
+      ],
+      [
+        "P01.D00",
+        40883
+      ],
+      [
+        "P01.D00",
+        40884
+      ],
+      [
+        "P01.D00",
+        40885
+      ],
+      [
+        "P01.D00",
+        40886
+      ],
+      [
+        "P01.D00",
+        40887
+      ],
+      [
+        "P01.D00",
+        40888
+      ],
+      [
+        "P01.D00",
+        40889
+      ]
+    ]
+  },
+  "mine_rs_vs_pcpsp_period_metric_comparison": {
+    "shared_metrics": [
+      {
+        "metric": "P01.block_count",
+        "reference_value": 1190.0,
+        "candidate_value": 897.0,
+        "absolute_difference": 293.0,
+        "relative_difference": 0.246218487394958,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P01.discounted_objective",
+        "reference_value": 73938943.63495253,
+        "candidate_value": 20575753.177340448,
+        "absolute_difference": 53363190.45761208,
+        "relative_difference": 0.7217196761840963,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P01.tonnage",
+        "reference_value": 59989507.49363996,
+        "candidate_value": 57419367.67700014,
+        "absolute_difference": 2570139.8166398183,
+        "relative_difference": 0.04284315581207768,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P02.block_count",
+        "reference_value": 492.0,
+        "candidate_value": 908.0,
+        "absolute_difference": 416.0,
+        "relative_difference": 0.8455284552845529,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P02.discounted_objective",
+        "reference_value": 112159349.99982981,
+        "candidate_value": 1427125.0788255343,
+        "absolute_difference": 110732224.92100428,
+        "relative_difference": 0.9872759152150249,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P02.tonnage",
+        "reference_value": 32818661.424829967,
+        "candidate_value": 57453540.892000176,
+        "absolute_difference": 24634879.46717021,
+        "relative_difference": 0.7506363269445211,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P03.block_count",
+        "reference_value": 395.0,
+        "candidate_value": 874.0,
+        "absolute_difference": 479.0,
+        "relative_difference": 1.2126582278481013,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P03.discounted_objective",
+        "reference_value": 111706815.72735329,
+        "candidate_value": 28274483.740241643,
+        "absolute_difference": 83432331.98711164,
+        "relative_difference": 0.7468866733319821,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P03.tonnage",
+        "reference_value": 26852794.758999992,
+        "candidate_value": 57412656.78600019,
+        "absolute_difference": 30559862.0270002,
+        "relative_difference": 1.1380514505574042,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P04.block_count",
+        "reference_value": 308.0,
+        "candidate_value": 1164.0,
+        "absolute_difference": 856.0,
+        "relative_difference": 2.779220779220779,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P04.discounted_objective",
+        "reference_value": 134173532.86346027,
+        "candidate_value": -28243007.31384419,
+        "absolute_difference": 162416540.17730445,
+        "relative_difference": 1.2104961143311719,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P04.tonnage",
+        "reference_value": 22081548.90499997,
+        "candidate_value": 57449664.135999955,
+        "absolute_difference": 35368115.230999984,
+        "relative_difference": 1.6017044539385328,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P05.block_count",
+        "reference_value": 300.0,
+        "candidate_value": 1714.0,
+        "absolute_difference": 1414.0,
+        "relative_difference": 4.713333333333333,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P05.discounted_objective",
+        "reference_value": 126675342.41242476,
+        "candidate_value": -14409847.870879857,
+        "absolute_difference": 141085190.2833046,
+        "relative_difference": 1.113754165542058,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P05.tonnage",
+        "reference_value": 21478938.203,
+        "candidate_value": 56908252.6030002,
+        "absolute_difference": 35429314.4000002,
+        "relative_difference": 1.6494909601747316,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P06.block_count",
+        "reference_value": 521.0,
+        "candidate_value": 842.0,
+        "absolute_difference": 321.0,
+        "relative_difference": 0.6161228406909789,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P06.discounted_objective",
+        "reference_value": 85473965.96910624,
+        "candidate_value": 89064349.69159636,
+        "absolute_difference": 3590383.722490117,
+        "relative_difference": 0.04200558242246332,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P06.tonnage",
+        "reference_value": 33284292.0689999,
+        "candidate_value": 56584714.537000336,
+        "absolute_difference": 23300422.468000434,
+        "relative_difference": 0.7000426032705627,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P07.block_count",
+        "reference_value": 683.0,
+        "candidate_value": 858.0,
+        "absolute_difference": 175.0,
+        "relative_difference": 0.2562225475841874,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P07.discounted_objective",
+        "reference_value": 60548795.18608576,
+        "candidate_value": 64083442.19021685,
+        "absolute_difference": 3534647.004131086,
+        "relative_difference": 0.058376834638377006,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P07.tonnage",
+        "reference_value": 43170458.46463996,
+        "candidate_value": 56577135.63800023,
+        "absolute_difference": 13406677.173360266,
+        "relative_difference": 0.31055211480650363,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P08.block_count",
+        "reference_value": 469.0,
+        "candidate_value": 866.0,
+        "absolute_difference": 397.0,
+        "relative_difference": 0.8464818763326226,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P08.discounted_objective",
+        "reference_value": 57942130.998413675,
+        "candidate_value": 33457809.016216163,
+        "absolute_difference": 24484321.982197512,
+        "relative_difference": 0.4225650931421186,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P08.tonnage",
+        "reference_value": 31158683.014459874,
+        "candidate_value": 56593276.44700018,
+        "absolute_difference": 25434593.43254031,
+        "relative_difference": 0.816292313148692,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P09.block_count",
+        "reference_value": 685.0,
+        "candidate_value": 877.0,
+        "absolute_difference": 192.0,
+        "relative_difference": 0.28029197080291973,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P09.discounted_objective",
+        "reference_value": 41687904.33772901,
+        "candidate_value": 23381859.515329044,
+        "absolute_difference": 18306044.822399963,
+        "relative_difference": 0.43912125383171047,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P09.tonnage",
+        "reference_value": 43034697.58199991,
+        "candidate_value": 56558507.09700009,
+        "absolute_difference": 13523809.51500018,
+        "relative_difference": 0.31425362033116205,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P10.block_count",
+        "reference_value": 795.0,
+        "candidate_value": 845.0,
+        "absolute_difference": 50.0,
+        "relative_difference": 0.06289308176100629,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P10.discounted_objective",
+        "reference_value": 30975025.557742186,
+        "candidate_value": 32935583.514066823,
+        "absolute_difference": 1960557.956324637,
+        "relative_difference": 0.0632947970509292,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P10.tonnage",
+        "reference_value": 49227748.17987992,
+        "candidate_value": 56163945.03600021,
+        "absolute_difference": 6936196.856120288,
+        "relative_difference": 0.1409001449908938,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P11.block_count",
+        "reference_value": 652.0,
+        "candidate_value": 831.0,
+        "absolute_difference": 179.0,
+        "relative_difference": 0.2745398773006135,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P11.discounted_objective",
+        "reference_value": 26610511.41133772,
+        "candidate_value": 47411075.58249449,
+        "absolute_difference": 20800564.17115677,
+        "relative_difference": 0.7816672084811737,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P11.tonnage",
+        "reference_value": 40621058.09775994,
+        "candidate_value": 57961462.72600022,
+        "absolute_difference": 17340404.62824028,
+        "relative_difference": 0.42688215030017945,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P12.block_count",
+        "reference_value": 891.0,
+        "candidate_value": 840.0,
+        "absolute_difference": 51.0,
+        "relative_difference": 0.05723905723905724,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P12.discounted_objective",
+        "reference_value": 14592890.25617342,
+        "candidate_value": 53575309.72114538,
+        "absolute_difference": 38982419.46497196,
+        "relative_difference": 2.671329584520155,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P12.tonnage",
+        "reference_value": 54153211.677189976,
+        "candidate_value": 58024693.138000265,
+        "absolute_difference": 3871481.460810289,
+        "relative_difference": 0.07149126230755037,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P13.block_count",
+        "reference_value": 889.0,
+        "candidate_value": 851.0,
+        "absolute_difference": 38.0,
+        "relative_difference": 0.04274465691788527,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P13.discounted_objective",
+        "reference_value": 8695990.664138457,
+        "candidate_value": 44576409.09286865,
+        "absolute_difference": 35880418.42873019,
+        "relative_difference": 4.126087505670637,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P13.tonnage",
+        "reference_value": 54506484.87028012,
+        "candidate_value": 57665504.01400036,
+        "absolute_difference": 3159019.143720247,
+        "relative_difference": 0.057956757828694895,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P14.block_count",
+        "reference_value": 246.0,
+        "candidate_value": 819.0,
+        "absolute_difference": 573.0,
+        "relative_difference": 2.3292682926829267,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P14.discounted_objective",
+        "reference_value": 786862.4724256856,
+        "candidate_value": 33147583.946094558,
+        "absolute_difference": 32360721.473668873,
+        "relative_difference": 41.12627378696745,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P14.tonnage",
+        "reference_value": 14768503.04500002,
+        "candidate_value": 57860702.61300002,
+        "absolute_difference": 43092199.568,
+        "relative_difference": 2.9178447833674768,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P15.block_count",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P15.discounted_objective",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P15.tonnage",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P16.block_count",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P16.discounted_objective",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P16.tonnage",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P17.block_count",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P17.discounted_objective",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P17.tonnage",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P18.block_count",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P18.discounted_objective",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P18.tonnage",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P19.block_count",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P19.discounted_objective",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P19.tonnage",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P20.block_count",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P20.discounted_objective",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      },
+      {
+        "metric": "P20.tonnage",
+        "reference_value": 0.0,
+        "candidate_value": 0.0,
+        "absolute_difference": 0.0,
+        "relative_difference": 0.0,
+        "absolute_tolerance": null,
+        "relative_tolerance": null,
+        "within_tolerance": true
+      }
+    ],
+    "reference_only_metrics": [],
+    "candidate_only_metrics": []
+  },
   "assumptions": [
     "marving-info.txt was used to confirm that field_4 is tonnage and field_7 is proc_profit ($/ton), and that mine_cost = 0.9 $/ton.",
     "The candidate precedence template uses the 17-offset Marvin slope pattern (45°/8-niveles): 5 cross at dk=1, 4 diagonal corners at dk=3, 8 near-circle at dk=5.",
     "total_economic_objective = sum((max(proc_profit, 0) - 0.9) × tonnage). Official UPIT target: 1,415,655,436.",
-    "CPIT/PCPSP objective audits apply the MineLib-style discounted objective sum(value × fraction / (1 + discount_rate)^period) over the normalized reference problems and solutions."
+    "The exact UPL comparison uses `marvin.prec` + `marvin.upit` block objective values and solves max-closure directly with the exact backend.",
+    "CPIT/PCPSP objective audits apply the MineLib-style discounted objective sum(value × fraction / (1 + discount_rate)^period) over the normalized reference problems and solutions.",
+    "The internal mine-rs end-to-end candidate rebuilds Marvin economics from field_4/field_5/field_6 and uses synthetic bench-band phases over the heuristic UPIT membership."
   ],
   "limitations": [
-    "This benchmark now audits CPIT, PCPSP and LP reference artifacts, but it still lacks an internal mine-rs scheduler to compare against those references period-by-period.",
-    "UPIT comparison still uses the positive-block-closure heuristic in the Marvin benchmark; the exact UPL backend exists for smaller cases but the current Edmonds-Karp implementation is not yet benchmark-scalable for Marvin-sized instances (pending MR-173/MR-174).",
+    "The internal end-to-end candidate now builds a destination-aware ready-frontier schedule over a normalized Marvin `SchedulingProblem`, but the economic evaluator still aggregates phase cashflow using each block's best destination rather than the routed destination in the candidate schedule.",
+    "The heuristic UPIT path is still reported because it remains useful as a cheap baseline; exact parity now comes from the dedicated exact UPL comparison built on `marvin.upit` + `marvin.prec`.",
     "The prec template was reverse-engineered from the reference file; formal proof of completeness against the MineLib algorithm is pending (pending MR-154)."
   ]
 }

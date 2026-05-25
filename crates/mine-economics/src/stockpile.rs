@@ -44,9 +44,7 @@ impl MaterialParcel {
             if !quantity.is_finite() || quantity < 0.0 {
                 return Err(MineError::invalid_parameter(
                     "contained_metals",
-                    format!(
-                        "contained metal for `{metal}` must be finite and non-negative"
-                    ),
+                    format!("contained metal for `{metal}` must be finite and non-negative"),
                 ));
             }
 
@@ -163,7 +161,10 @@ impl MaterialParcel {
             }
         }
 
-        Self::new(normalize_value(self.tonnes - other.tonnes), contained_metals)
+        Self::new(
+            normalize_value(self.tonnes - other.tonnes),
+            contained_metals,
+        )
     }
 
     fn take_tonnes(&self, tonnes: f64) -> Result<Self, MineError> {
@@ -279,8 +280,11 @@ impl StockpileDegradation {
             })
             .collect();
 
-        MaterialParcel::new(material.tonnes() * self.tonnage_loss_fraction_per_period, contained_metals)
-            .expect("validated degradation must yield a valid parcel")
+        MaterialParcel::new(
+            material.tonnes() * self.tonnage_loss_fraction_per_period,
+            contained_metals,
+        )
+        .expect("validated degradation must yield a valid parcel")
     }
 }
 
@@ -665,7 +669,9 @@ pub struct StockpilePlanReport {
 /// 2. se aplica degradacion opcional al opening balance;
 /// 3. se ejecutan deposits y reclaims segun `transaction_order`;
 /// 4. se construyen reportes minimos de mezcla por destino.
-pub fn evaluate_stockpile_plan(plan: &StockpilePlanInput) -> Result<StockpilePlanReport, MineError> {
+pub fn evaluate_stockpile_plan(
+    plan: &StockpilePlanInput,
+) -> Result<StockpilePlanReport, MineError> {
     let mut inventories: BTreeMap<StockpileId, MaterialParcel> = plan
         .stockpiles()
         .iter()
@@ -691,11 +697,13 @@ pub fn evaluate_stockpile_plan(plan: &StockpilePlanInput) -> Result<StockpilePla
         for stockpile in plan.stockpiles() {
             let degraded = stockpile
                 .degradation()
-                .map_or_else(MaterialParcel::zero, |rule| rule.apply(
-                    working_balances
-                        .get(stockpile.stockpile_id())
-                        .expect("stockpile inventory must exist"),
-                ));
+                .map_or_else(MaterialParcel::zero, |rule| {
+                    rule.apply(
+                        working_balances
+                            .get(stockpile.stockpile_id())
+                            .expect("stockpile inventory must exist"),
+                    )
+                });
 
             let current_balance = working_balances
                 .get(stockpile.stockpile_id())
@@ -875,7 +883,11 @@ fn apply_reclaims(
         let reclaimed_total = current_balance.take_tonnes(requested_tonnes)?;
         let closing_balance = current_balance.subtract(&reclaimed_total)?;
         working_balances.insert(stockpile_id.clone(), closing_balance);
-        add_material(reclaimed_by_stockpile, stockpile_id.clone(), &reclaimed_total);
+        add_material(
+            reclaimed_by_stockpile,
+            stockpile_id.clone(),
+            &reclaimed_total,
+        );
 
         for request in requests {
             let fraction = if normalize_value(requested_tonnes) == 0.0 {
@@ -938,11 +950,8 @@ fn build_destination_blends(
         .collect()
 }
 
-fn add_material<K>(
-    target: &mut BTreeMap<K, MaterialParcel>,
-    key: K,
-    parcel: &MaterialParcel,
-) where
+fn add_material<K>(target: &mut BTreeMap<K, MaterialParcel>, key: K, parcel: &MaterialParcel)
+where
     K: Ord,
 {
     target

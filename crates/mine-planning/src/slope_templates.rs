@@ -339,8 +339,7 @@ mod tests {
     #[test]
     fn uniform_45_degree_slope_includes_direct_above() {
         let dims = block_dims_10m();
-        let template =
-            VariableSlopeTemplate::uniform(45.0, 2).expect("template should be valid");
+        let template = VariableSlopeTemplate::uniform(45.0, 2).expect("template should be valid");
         let precedence =
             derive_precedence_template_from_slope(&dims, &template).expect("should succeed");
 
@@ -357,8 +356,7 @@ mod tests {
         let dims = block_dims_10m();
         // 45° slope: horizontal = vertical, so at di=1, dj=0 (horizontal dist=10m),
         // dk_min = ceil(10 * tan(45°) / 10) = ceil(1.0) = 1
-        let template =
-            VariableSlopeTemplate::uniform(45.0, 1).expect("template should be valid");
+        let template = VariableSlopeTemplate::uniform(45.0, 1).expect("template should be valid");
         let precedence =
             derive_precedence_template_from_slope(&dims, &template).expect("should succeed");
 
@@ -377,8 +375,7 @@ mod tests {
     fn steep_slope_requires_higher_dk() {
         let dims = block_dims_10m();
         // 60° slope: tan(60°) ≈ 1.73, so at di=1 dj=0: dk_min = ceil(10 * 1.73 / 10) = 2
-        let template =
-            VariableSlopeTemplate::uniform(60.0, 2).expect("template should be valid");
+        let template = VariableSlopeTemplate::uniform(60.0, 2).expect("template should be valid");
         let precedence =
             derive_precedence_template_from_slope(&dims, &template).expect("should succeed");
 
@@ -425,10 +422,22 @@ mod tests {
 
     #[test]
     fn slope_angle_rule_rejects_invalid_inputs() {
-        assert!(SlopeAngleRule::new(-10.0, 90.0, 45.0).is_err(), "negative azimuth");
-        assert!(SlopeAngleRule::new(0.0, 0.0, 45.0).is_err(), "zero-width sector");
-        assert!(SlopeAngleRule::new(0.0, 90.0, 0.0).is_err(), "zero slope angle");
-        assert!(SlopeAngleRule::new(0.0, 90.0, 90.0).is_err(), "90-degree slope angle");
+        assert!(
+            SlopeAngleRule::new(-10.0, 90.0, 45.0).is_err(),
+            "negative azimuth"
+        );
+        assert!(
+            SlopeAngleRule::new(0.0, 0.0, 45.0).is_err(),
+            "zero-width sector"
+        );
+        assert!(
+            SlopeAngleRule::new(0.0, 90.0, 0.0).is_err(),
+            "zero slope angle"
+        );
+        assert!(
+            SlopeAngleRule::new(0.0, 90.0, 90.0).is_err(),
+            "90-degree slope angle"
+        );
     }
 
     #[test]

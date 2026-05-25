@@ -15,12 +15,9 @@ use mine_core::{ColumnId, Coordinate3D, MineError};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    EstimationPass, SpatialSample,
-    estimators::estimate_inverse_distance_weighting,
-    kriging::estimate_ordinary_kriging,
-    neighborhoods::SearchNeighborhood,
-    variography::VariogramModel,
-    InverseDistanceWeightingOptions,
+    EstimationPass, InverseDistanceWeightingOptions, SpatialSample,
+    estimators::estimate_inverse_distance_weighting, kriging::estimate_ordinary_kriging,
+    neighborhoods::SearchNeighborhood, variography::VariogramModel,
 };
 
 // ── Cross-validation ─────────────────────────────────────────────────────────
@@ -322,10 +319,7 @@ pub fn build_swath_plot(
         .map(|p| axis_coord(&p.location, axis))
         .collect();
 
-    let coord_min = coord_values
-        .iter()
-        .cloned()
-        .fold(f64::INFINITY, f64::min);
+    let coord_min = coord_values.iter().cloned().fold(f64::INFINITY, f64::min);
     let coord_max = coord_values
         .iter()
         .cloned()
@@ -587,8 +581,7 @@ mod tests {
         let col = ColumnId::new("grade").expect("column id should be valid");
         let data: Vec<SwathDataPoint> = (0..10)
             .map(|i| SwathDataPoint {
-                location: Coordinate3D::new(i as f64, 0.0, 0.0)
-                    .expect("coord should be valid"),
+                location: Coordinate3D::new(i as f64, 0.0, 0.0).expect("coord should be valid"),
                 actual_value: i as f64,
                 estimated_value: i as f64 * 1.05,
             })

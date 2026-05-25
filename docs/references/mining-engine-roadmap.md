@@ -132,7 +132,7 @@ mine-rs puede comparar alternativas con sensibilidad y riesgo explícitos, sin r
 | Valorización | destination-aware value, NSR, equivalent value | geometalurgia avanzada, destinos no lineales | [R11], [R12], [R13], [R14] |
 | Pit final | LG / max-closure / max-flow exacto | pseudoflow paramétrico y variantes | [R15], [R16], [R17], [R18], [R19] |
 | Pushbacks | shells por revenue factor y diseño explícito | parametric pit limits más avanzados | [R17], [R18], [R20] |
-| Scheduling | scheduler agregado, MILP/heurística determinista, capacidades y stockpiles | descomposición avanzada, Lagrangiano, metaheurísticas | [R20], [R21], [R22], [R23], [R24], [R25] |
+| Scheduling | scheduler agregado, rolling horizon/sliding window, LP relajado, capacidades y stockpiles | descomposición avanzada, Lagrangiano, implicit precedence, metaheurísticas | [R20], [R21], [R22], [R23], [R24], [R25], [R30], [R31], [R32], [R33], [R34], [R35], [R36] |
 | Incertidumbre | contratos de realizaciones y métricas de riesgo | SGS/SIS, pit y schedule estocásticos | [R07], [R24], [R25], [R26], [R27], [R28] |
 
 ## Qué debe quedar fuera del MVP inicial
@@ -190,3 +190,10 @@ mine-rs puede comparar alternativas con sensibilidad y riesgo explícitos, sin r
 - **[R27]** Morales, N., Seguel, J., Cáceres, A., Moreno, E., Pincheira, J.-A. (2019). *Incorporation of Geometallurgical Attributes and Geological Uncertainty into Long-Term Open-Pit Mine Planning*. https://doi.org/10.3390/min9020108
 - **[R28]** Jelvez, E., Morales, N., Ortiz, J. M. (2021). *Stochastic Final Pit Limits: An Efficient Frontier Analysis under Geological Uncertainty in the Open-Pit Mining Industry*. https://doi.org/10.3390/math10010100
 - **[R29]** Espinoza, D., Goycoolea, M., Moreno, E., Newman, A. M. (2013). *MineLib: a library of open pit mining problems*. https://doi.org/10.1007/s10479-012-1258-3
+- **[R30]** Cullenbine, C., Wood, R. K., Newman, A. M. (2011). *A Sliding Time Window Heuristic for Open Pit Mine Block Sequencing*. https://doi.org/10.1007/s11590-011-0306-2
+- **[R31]** Meagher, C., Dimitrakopoulos, R., Avis, D. (2014). *Optimized Open Pit Mine Design, Pushbacks and the Gap Problem — A Review*. https://doi.org/10.1134/S1062739114030132
+- **[R32]** Fathollahzadeh, K., Asad, M. W. A., Mardaneh, E., Cigla, M. (2021). *Review of Solution Methodologies for Open Pit Mine Production Scheduling Problem*. https://doi.org/10.1080/17480930.2021.1888395
+- **[R33]** Jélvez, E., Morales, N., Nancel-Penard, P. (2018). *Open-Pit Mine Production Scheduling: Improvements to MineLib Library Problems*. https://doi.org/10.1007/978-3-319-99220-4_18
+- **[R34]** Muñoz, G., Espinoza, D., Goycoolea, M., Moreno, E., Queyranne, M., Letelier, O. R. (2018). *A Study of the Bienstock-Zuckerberg Algorithm: Applications in Mining and Resource Constrained Project Scheduling*. https://doi.org/10.1007/s10287-018-0312-5
+- **[R35]** Chicoisne, R., Espinoza, D., Goycoolea, M., Moreno, E., Rubio, E. (2012). *A New Algorithm for the Open-Pit Mine Scheduling Problem*. https://doi.org/10.1287/opre.1120.1050
+- **[R36]** Boland, N., Dumitrescu, I., Froyland, G., Gleixner, A. (2009). *LP-Based Disaggregation Approaches to Solving the Open Pit Mining Production Scheduling Problem with Block Processing Selectivity*. https://doi.org/10.1016/j.cor.2007.12.006

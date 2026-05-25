@@ -1,13 +1,13 @@
 //! Solver exacto de Ultimate Pit Limit (UPL) basado en max-flow.
 //!
-//! Implementa el algoritmo de Edmonds-Karp (Ford-Fulkerson con BFS) para
+//! Implementa el algoritmo de Dinic para
 //! resolver el problema de max-closure / min-cut derivado de `MaxClosureGraph`.
 //!
 //! # Complejidad
 //!
-//! Edmonds-Karp tiene complejidad O(VE²). Para modelos con miles de bloques
-//! y grafos de precedencia densos, se recomienda migrar a push-relabel
-//! (O(V²√E)) en trabajos futuros.
+//! Dinic mejora el backend inicial de Edmonds-Karp y trabaja con grafos de
+//! nivel + blocking flow. En la práctica escala mucho mejor para instancias
+//! medianas/grandes del cierre máximo que el enfoque O(VE²) anterior.
 //!
 //! # Resultado
 //!
@@ -16,7 +16,7 @@
 //! - El valor económico total del pit (suma de pesos de bloques seleccionados).
 //! - El max-flow (igual al costo del min-cut).
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 
 use mine_core::MineError;
 use serde::{Deserialize, Serialize};
@@ -42,9 +42,16 @@ pub struct UplSolverResult {
     pub total_block_count: usize,
 }
 
-// ── Estructura interna del grafo de flujo ─────────────────────────────────────
+const RESIDUAL_EPSILON: f64 = 1.0e-10;
 
-/// Resuelve el UPL exacto usando max-flow de Edmonds-Karp sobre `MaxClosureGraph`.
+#[derive(Debug, Clone, Copy)]
+struct ResidualEdge {
+    to: usize,
+    reverse_index: usize,
+    capacity: f64,
+}
+
+/// Resuelve el UPL exacto usando max-flow de Dinic sobre `MaxClosureGraph`.
 ///
 /// # Nota sobre capacidad "infinita"
 ///
@@ -69,22 +76,19 @@ pub fn solve_upl_exact(closure_graph: &MaxClosureGraph) -> Result<UplSolverResul
 
     // Mapeo de MaxClosureNodeId a índices contiguos
     let mut node_ids: Vec<MaxClosureNodeId> = Vec::new();
-    let mut node_map: BTreeMap<String, usize> = BTreeMap::new();
-
-    let source_key = "source".to_owned();
-    let sink_key = "sink".to_owned();
+    let mut node_map: BTreeMap<MaxClosureNodeId, usize> = BTreeMap::new();
 
     node_ids.push(MaxClosureNodeId::Source);
-    node_map.insert(source_key.clone(), 0);
+    node_map.insert(MaxClosureNodeId::Source, 0);
     node_ids.push(MaxClosureNodeId::Sink);
-    node_map.insert(sink_key.clone(), 1);
+    node_map.insert(MaxClosureNodeId::Sink, 1);
 
     for (&linear_index, _) in &closure_graph.block_weights {
-        let key = format!("block:{linear_index}");
-        if !node_map.contains_key(&key) {
+        let node_id = MaxClosureNodeId::Block(linear_index);
+        if !node_map.contains_key(&node_id) {
             let idx = node_ids.len();
-            node_ids.push(MaxClosureNodeId::Block(linear_index));
-            node_map.insert(key, idx);
+            node_ids.push(node_id.clone());
+            node_map.insert(node_id, idx);
         }
     }
 
@@ -92,87 +96,37 @@ pub fn solve_upl_exact(closure_graph: &MaxClosureGraph) -> Result<UplSolverResul
     let source = 0_usize;
     let sink = 1_usize;
 
-    let node_key = |id: &MaxClosureNodeId| -> String {
-        match id {
-            MaxClosureNodeId::Source => "source".to_owned(),
-            MaxClosureNodeId::Sink => "sink".to_owned(),
-            MaxClosureNodeId::Block(i) => format!("block:{i}"),
-        }
-    };
-
-    // Build residual graph using adjacency lists with arc indices
-    // Each arc stores (to, capacity, rev_arc_index)
-    let mut graph: Vec<Vec<(usize, f64, usize)>> = vec![Vec::new(); n];
-
-    let add_arc = |graph: &mut Vec<Vec<(usize, f64, usize)>>, u: usize, v: usize, cap: f64| {
-        let u_len = graph[u].len();
-        let v_len = graph[v].len();
-        graph[u].push((v, cap, v_len)); // forward arc
-        graph[v].push((u, 0.0, u_len)); // backward arc (residual)
-    };
+    let mut graph: Vec<Vec<ResidualEdge>> = vec![Vec::new(); n];
 
     for arc in &closure_graph.arcs {
-        let from_key = node_key(&arc.from);
-        let to_key = node_key(&arc.to);
-        let from_idx = node_map[&from_key];
-        let to_idx = node_map[&to_key];
+        let from_idx = node_map[&arc.from];
+        let to_idx = node_map[&arc.to];
         let cap = if arc.capacity.is_infinite() {
             inf_capacity
         } else {
             arc.capacity
         };
-        add_arc(&mut graph, from_idx, to_idx, cap);
+        add_residual_edge(&mut graph, from_idx, to_idx, cap);
     }
 
-    // Edmonds-Karp max-flow
     let mut total_flow = 0.0_f64;
-    loop {
-        // BFS to find augmenting path
-        let mut parent: Vec<Option<(usize, usize)>> = vec![None; n]; // (from_node, arc_index)
-        let mut visited = vec![false; n];
-        visited[source] = true;
-        let mut queue = VecDeque::new();
-        queue.push_back(source);
-
-        while let Some(u) = queue.pop_front() {
-            if u == sink {
+    let mut levels = vec![-1_i32; n];
+    while build_level_graph(&graph, source, sink, &mut levels) {
+        let mut next_edge = vec![0_usize; n];
+        loop {
+            let pushed = send_blocking_flow(
+                source,
+                sink,
+                f64::INFINITY,
+                &levels,
+                &mut next_edge,
+                &mut graph,
+            );
+            if pushed <= RESIDUAL_EPSILON {
                 break;
             }
-            for (arc_idx, &(v, cap, _)) in graph[u].iter().enumerate() {
-                if !visited[v] && cap > 1e-10 {
-                    visited[v] = true;
-                    parent[v] = Some((u, arc_idx));
-                    queue.push_back(v);
-                    if v == sink {
-                        break;
-                    }
-                }
-            }
+            total_flow += pushed;
         }
-
-        if !visited[sink] {
-            break; // no augmenting path
-        }
-
-        // Find bottleneck capacity along the path
-        let mut bottleneck = f64::INFINITY;
-        let mut node = sink;
-        while let Some((prev, arc_idx)) = parent[node] {
-            let cap = graph[prev][arc_idx].1;
-            bottleneck = bottleneck.min(cap);
-            node = prev;
-        }
-
-        // Augment flow along the path
-        node = sink;
-        while let Some((prev, arc_idx)) = parent[node] {
-            let rev_idx = graph[prev][arc_idx].2;
-            graph[prev][arc_idx].1 -= bottleneck;
-            graph[node][rev_idx].1 += bottleneck;
-            node = prev;
-        }
-
-        total_flow += bottleneck;
     }
 
     // Find min-cut: BFS from source in residual graph
@@ -181,10 +135,10 @@ pub fn solve_upl_exact(closure_graph: &MaxClosureGraph) -> Result<UplSolverResul
     let mut queue = VecDeque::new();
     queue.push_back(source);
     while let Some(u) = queue.pop_front() {
-        for &(v, cap, _) in &graph[u] {
-            if !reachable[v] && cap > 1e-10 {
-                reachable[v] = true;
-                queue.push_back(v);
+        for edge in &graph[u] {
+            if !reachable[edge.to] && edge.capacity > RESIDUAL_EPSILON {
+                reachable[edge.to] = true;
+                queue.push_back(edge.to);
             }
         }
     }
@@ -218,6 +172,81 @@ pub fn solve_upl_exact(closure_graph: &MaxClosureGraph) -> Result<UplSolverResul
     })
 }
 
+fn add_residual_edge(graph: &mut [Vec<ResidualEdge>], from: usize, to: usize, capacity: f64) {
+    let forward_index = graph[from].len();
+    let reverse_index = graph[to].len();
+    graph[from].push(ResidualEdge {
+        to,
+        reverse_index,
+        capacity,
+    });
+    graph[to].push(ResidualEdge {
+        to: from,
+        reverse_index: forward_index,
+        capacity: 0.0,
+    });
+}
+
+fn build_level_graph(
+    graph: &[Vec<ResidualEdge>],
+    source: usize,
+    sink: usize,
+    levels: &mut [i32],
+) -> bool {
+    levels.fill(-1);
+    levels[source] = 0;
+    let mut queue = VecDeque::new();
+    queue.push_back(source);
+
+    while let Some(node) = queue.pop_front() {
+        for edge in &graph[node] {
+            if edge.capacity > RESIDUAL_EPSILON && levels[edge.to] < 0 {
+                levels[edge.to] = levels[node] + 1;
+                queue.push_back(edge.to);
+            }
+        }
+    }
+
+    levels[sink] >= 0
+}
+
+fn send_blocking_flow(
+    node: usize,
+    sink: usize,
+    flow: f64,
+    levels: &[i32],
+    next_edge: &mut [usize],
+    graph: &mut [Vec<ResidualEdge>],
+) -> f64 {
+    if node == sink {
+        return flow;
+    }
+
+    while next_edge[node] < graph[node].len() {
+        let edge_index = next_edge[node];
+        let edge = graph[node][edge_index];
+        if edge.capacity > RESIDUAL_EPSILON && levels[edge.to] == levels[node] + 1 {
+            let pushed = send_blocking_flow(
+                edge.to,
+                sink,
+                flow.min(edge.capacity),
+                levels,
+                next_edge,
+                graph,
+            );
+            if pushed > RESIDUAL_EPSILON {
+                graph[node][edge_index].capacity -= pushed;
+                let reverse_index = edge.reverse_index;
+                graph[edge.to][reverse_index].capacity += pushed;
+                return pushed;
+            }
+        }
+        next_edge[node] += 1;
+    }
+
+    0.0
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -232,11 +261,7 @@ mod tests {
     /// Pesos: 0=+10, 1=-3, 2=-2. Óptimo: extraer {0, 1, 2} con valor 10-3-2=5.
     #[test]
     fn solver_selects_all_blocks_when_positive_net_value() {
-        let weights = BTreeMap::from([
-            (0usize, 10.0_f64),
-            (1usize, -3.0_f64),
-            (2usize, -2.0_f64),
-        ]);
+        let weights = BTreeMap::from([(0usize, 10.0_f64), (1usize, -3.0_f64), (2usize, -2.0_f64)]);
         let graph = PrecedenceGraph::new(vec![
             PrecedenceEdge::new(PrecedenceNode::Block(2), PrecedenceNode::Block(1)),
             PrecedenceEdge::new(PrecedenceNode::Block(1), PrecedenceNode::Block(0)),
@@ -310,11 +335,7 @@ mod tests {
     /// Verifica que pit_value = upper_bound - max_flow_value (identidad del max-closure).
     #[test]
     fn pit_value_equals_upper_bound_minus_max_flow() {
-        let weights = BTreeMap::from([
-            (0usize, 10.0_f64),
-            (1usize, -3.0_f64),
-            (2usize, -2.0_f64),
-        ]);
+        let weights = BTreeMap::from([(0usize, 10.0_f64), (1usize, -3.0_f64), (2usize, -2.0_f64)]);
         let graph = PrecedenceGraph::new(vec![
             PrecedenceEdge::new(PrecedenceNode::Block(2), PrecedenceNode::Block(1)),
             PrecedenceEdge::new(PrecedenceNode::Block(1), PrecedenceNode::Block(0)),

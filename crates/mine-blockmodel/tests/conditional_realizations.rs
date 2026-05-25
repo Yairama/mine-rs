@@ -49,8 +49,8 @@ fn build_conditional_realization_set_with_explicit_lineage() {
 
 #[test]
 fn reject_realization_without_conditioning_artifacts() {
-    let error = ConditionalRealizationLineage::new(vec![], None)
-        .expect_err("missing lineage should fail");
+    let error =
+        ConditionalRealizationLineage::new(vec![], None).expect_err("missing lineage should fail");
 
     assert_eq!(
         error,
@@ -106,7 +106,13 @@ fn reject_duplicate_realization_indices() {
         sampled_columns.clone(),
         support.clone(),
         vec![
-            sample_realization("realization-a", 0, sampled_columns.clone(), support.clone(), 101),
+            sample_realization(
+                "realization-a",
+                0,
+                sampled_columns.clone(),
+                support.clone(),
+                101,
+            ),
             sample_realization("realization-b", 0, sampled_columns, support, 202),
         ],
         Metadata::new(),

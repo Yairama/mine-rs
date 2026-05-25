@@ -35,17 +35,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..");
-    let marvin_dir = repo_root
-        .join("datasets")
-        .join("benchmarks")
-        .join("marvin");
+    let marvin_dir = repo_root.join("datasets").join("benchmarks").join("marvin");
     let dataset_path = env::args_os()
         .nth(1)
         .map(PathBuf::from)
         .unwrap_or_else(|| marvin_dir.join("marvin.blocks"));
-    let output_path = env::args_os().nth(2).map(PathBuf::from).unwrap_or_else(|| {
-        marvin_dir.join("outputs").join("marvin.prec.json")
-    });
+    let output_path = env::args_os()
+        .nth(2)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| marvin_dir.join("outputs").join("marvin.prec.json"));
 
     let model = read_benchmark_blocks(&dataset_path, "marvin")?;
     let offsets = vec![
