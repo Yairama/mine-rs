@@ -1,0 +1,13 @@
+[package]
+name = "mine-reblock"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+mine-blockmodel = { path = "../mine-blockmodel" }
+mine-core = { path = "../mine-core" }
+mine-indexing = { path = "../mine-indexing" }
+serde = { workspace = true }
+
+[lints]
+workspace = true

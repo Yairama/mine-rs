@@ -1,0 +1,11 @@
+[package]
+name = "mine-indexing"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+mine-core = { path = "../mine-core" }
+serde = { workspace = true }
+
+[lints]
+workspace = true

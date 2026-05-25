@@ -1,0 +1,17 @@
+[package]
+name = "mine-sdk"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+mine-blockmodel = { path = "../mine-blockmodel" }
+mine-core = { path = "../mine-core" }
+mine-economics = { path = "../mine-economics" }
+mine-indexing = { path = "../mine-indexing" }
+mine-io = { path = "../mine-io" }
+mine-planning = { path = "../mine-planning" }
+mine-reblock = { path = "../mine-reblock" }
+mine-validation = { path = "../mine-validation" }
+
+[lints]
+workspace = true

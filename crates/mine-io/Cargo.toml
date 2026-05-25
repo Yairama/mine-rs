@@ -1,0 +1,17 @@
+[package]
+name = "mine-io"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+arrow = { workspace = true }
+csv = { workspace = true }
+mine-blockmodel = { path = "../mine-blockmodel" }
+mine-core = { path = "../mine-core" }
+mine-indexing = { path = "../mine-indexing" }
+parquet = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

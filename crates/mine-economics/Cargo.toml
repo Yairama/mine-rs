@@ -1,0 +1,17 @@
+[package]
+name = "mine-economics"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+mine-blockmodel = { path = "../mine-blockmodel" }
+mine-core = { path = "../mine-core" }
+mine-planning = { path = "../mine-planning" }
+serde = { workspace = true }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+serde_json = { workspace = true }
+

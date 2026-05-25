@@ -1,0 +1,50 @@
+Information:
+Description:
+Marvin test mine
+Block model:
+Block size: 30x30x30 meters
+Precedence computed with 45 degrees using 8 levels
+Blockfile columns detail:
+<id> <x> <y> <z> <tonn> <au [ppm]> <cu %> <proc_profit>
+Blockvalue computation
+Blockvalues computed using mine cost = 0.9 per ton.
+proc_profit = (AU * Rec_Au * (Price_AU - Selling_AU)) + (CU * Rec_CU * (Price_CU - Selling_CU)) - Proc_cost
+where Rec_AU = 0.6, Rec_CU = 0.88, Price_AU = 12, Selling_AU = 0.2, Price_CU = 20, Selling_CU = 7.2 and Proc_cost = 4.0
+Discount rate = 0.1
+UPIT/CPIT profit computed processing blocks with <proc_profit> > 0
+Type of Constraints:
+C0 Capacity constraint (mine): Total extracted tonnage < 60M
+C1 Capacity constraint (process): Total processed tonnage < 20M
+
+File downloads:
+.blocks file: marvin.blocks
+.prec file: marvin.prec
+.upit file: marvin.upit
+.cpit file: marvin.cpit
+.pcpsp file: marvin.pcpsp
+Download the Minelib data format specification.
+Solution files:
+UPIT
+Download: marvin_upit.sol
+Objective value: 1,415,655,436
+Computed using Hochbaum's pseudoflow algorithm. [*]
+CPIT
+Download: marvin_cpit_gmunoz120723.sol
+Objective value: 820,726,048 (LP GAP 5.0%)
+Provided by Gonzalo Muñoz, and obtained from the LP relaxation using a modified TopoSort heuristic. [*]
+Download: marvin.LPcpit
+LP relaxation solution (not feasible)
+Objective value: 863,916,131
+Computed using a modified version of Bienstock & Zuckerberg algorithm. [*]
+PCPSP
+Download: marvin_pcpsp_gmunoz120723.sol
+Objective value: 885,968,070 (LP GAP 2.8%)
+Provided by Gonzalo Muñoz, and obtained from the LP relaxation using a modified TopoSort heuristic.[*]
+Download: marvin.LPpcpsp
+LP relaxation solution (not feasible)
+Objective value: 911,704,665
+Computed using a modified version of Bienstock & Zuckerberg algorithm.[*]
+References:
+Daniel Bienstock, Mark Zuckerberg (2010), Solving LP Relaxations of Large-Scale Precedence Constrained Problems. IPCO 2010: 1-14
+Dorit S. Hochbaum (2008), The Pseudoflow Algorithm: A New Algorithm for the Maximum-Flow Problem. Operations Research 56(4): 992-1009
+Gonzalo Muñoz (2012), Modelos de optimizacion lineal entera y aplicaciones a la mineria. Master thesis, Dept. Mathematical Engineering, Universidad de Chile.

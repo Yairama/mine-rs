@@ -1,0 +1,18 @@
+[package]
+name = "mine-python"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "_native"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+mine-sdk = { path = "../mine-sdk" }
+mine-tools = { path = "../mine-tools" }
+pyo3 = { workspace = true, features = ["abi3-py311", "extension-module"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

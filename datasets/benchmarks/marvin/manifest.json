@@ -1,0 +1,58 @@
+{
+  "dataset_family": "marvin",
+  "status": "staged",
+  "notes": [
+    "This manifest inventories benchmark artifacts currently staged inside the repository.",
+    "Column semantics beyond the axis-like integer ranges remain unverified and must be confirmed before schema-specific loaders are implemented.",
+    "The public Marvin page referenced during planning was not machine-verifiable at planning time because it responded behind a WAF, so this manifest only records artifacts observed locally."
+  ],
+  "instances": [
+    {
+      "instance_id": "marvin-local",
+      "source": {
+        "kind": "local-repository-artifact",
+        "original_path": "resources/marvin.blocks"
+      },
+      "artifacts": [
+        {
+          "artifact_type": "blocks",
+          "path": "datasets/benchmarks/marvin/marvin.blocks",
+          "format_detected": "whitespace-delimited numeric table",
+          "size_bytes": 1830477,
+          "sha256": "3d83fa827faf90ec5e71dd8b0d83ec4928052e1881a00f78d3eadbe64dd83538",
+          "row_count": 53271,
+          "column_count": 8,
+          "detected_profile": {
+            "unique_counts_first_columns": {
+              "field_0": 53271,
+              "field_1": 61,
+              "field_2": 60,
+              "field_3": 17
+            },
+            "min_values": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.275,
+              0.0,
+              0.0,
+              -4.0
+            ],
+            "max_values": [
+              53270.0,
+              60.0,
+              59.0,
+              16.0,
+              74250.0,
+              1.416666647,
+              1.463703683,
+              18.753312278896
+            ]
+          },
+          "semantics_verified": false
+        }
+      ]
+    }
+  ]
+}
