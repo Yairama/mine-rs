@@ -12,6 +12,7 @@ serde_json = { workspace = true }
 
 [dev-dependencies]
 mine-io = { path = "../mine-io" }
+mine-sdk = { path = "../mine-sdk" }
 
 [lints]
 workspace = true

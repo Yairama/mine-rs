@@ -11,6 +11,7 @@ mod kriging;
 mod layout;
 mod model;
 mod neighborhoods;
+mod realizations;
 mod selection;
 mod summary;
 mod validation;
@@ -50,6 +51,10 @@ pub use neighborhoods::{
     EstimationPass, EstimationPassEvaluation, EstimationPassSelection, NeighborhoodSample,
     NeighborhoodSelection, SampleCountLimits, SearchAnisotropy, SearchNeighborhood,
     select_samples_by_estimation_passes, select_samples_in_neighborhood,
+};
+pub use realizations::{
+    ConditionalRealization, ConditionalRealizationLineage, ConditionalRealizationSet,
+    RealizationStorageFormat, RealizationSupport,
 };
 pub use selection::BlockSelection;
 pub use summary::{ColumnSummary, ModelSummary, SpatialExtent};

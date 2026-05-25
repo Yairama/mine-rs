@@ -7,12 +7,16 @@
 //! `datasets/benchmarks/marvin/marvin.blocks` y la salida se escribe en
 //! `datasets/benchmarks/marvin/outputs/marvin.prec.json`.
 
+#[path = "../../marvin-benchmark/src/benchmark_blocks_support.rs"]
+mod benchmark_blocks_support;
+
 use std::env;
 use std::fs;
 use std::path::PathBuf;
 
+use benchmark_blocks_support::read_benchmark_blocks;
 use mine_sdk::{
-    BlockPrecedenceTemplate, PrecedenceOffset, build_block_precedence_graph, read_marvin_blocks,
+    BlockPrecedenceTemplate, PrecedenceOffset, build_block_precedence_graph,
     read_precedence_graph_json, write_precedence_graph_json,
 };
 use serde::Serialize;
@@ -43,7 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         marvin_dir.join("outputs").join("marvin.prec.json")
     });
 
-    let model = read_marvin_blocks(&dataset_path)?;
+    let model = read_benchmark_blocks(&dataset_path, "marvin")?;
     let offsets = vec![
         PrecedenceOffset::new(0, 0, 1)?,
         PrecedenceOffset::new(-1, 0, 1)?,

@@ -6,25 +6,45 @@
 //! Si no se especifican argumentos, el dataset se toma desde `datasets/benchmarks/marvin/`
 //! y el reporte se escribe en `datasets/benchmarks/marvin/outputs/comparison-report.json`.
 
+mod benchmark_blocks_support;
+mod marvin_support;
+
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 
+use benchmark_blocks_support::read_benchmark_blocks;
+use marvin_support::{
+    MarvinScheduleSolutionSummary, read_marvin_cpit_problem, read_marvin_cpit_solution,
+    read_marvin_lp_cpit_solution, read_marvin_lp_pcpsp_solution, read_marvin_pcpsp_problem,
+    read_marvin_pcpsp_solution, read_marvin_precedence_graph, read_marvin_upit_solution,
+    summarize_marvin_schedule_solution,
+};
 use mine_sdk::{
     BlockModel, BlockPrecedenceTemplate, ColumnData, ColumnId, NumericMetricComparisonReport,
     NumericMetricTolerance, PrecedenceNode, PrecedenceOffset, build_block_precedence_graph,
     build_upit_prototype, compare_block_memberships, compare_named_numeric_metrics,
-    read_marvin_blocks, read_marvin_precedence_graph, read_marvin_upit_solution,
 };
 use serde::Serialize;
+
+const OFFICIAL_CPIT_OBJECTIVE: f64 = 820_726_048.0;
+const OFFICIAL_LP_CPIT_OBJECTIVE: f64 = 863_916_131.0;
+const OFFICIAL_PCPSP_OBJECTIVE: f64 = 885_968_070.0;
+const OFFICIAL_LP_PCPSP_OBJECTIVE: f64 = 911_704_665.0;
 
 #[derive(Debug, Serialize)]
 struct MarvinBenchmarkOutput {
     dataset_dir: String,
     reference_prec_path: String,
     reference_upit_solution_path: String,
+    reference_cpit_problem_path: String,
+    reference_cpit_solution_path: String,
+    reference_pcpsp_problem_path: String,
+    reference_pcpsp_solution_path: String,
+    reference_lp_cpit_solution_path: String,
+    reference_lp_pcpsp_solution_path: String,
     value_column: String,
     tonnage_column: String,
     candidate_predecessor_offsets: Vec<(isize, isize, isize)>,
@@ -35,6 +55,10 @@ struct MarvinBenchmarkOutput {
     candidate_upit: MembershipArtifactSummary,
     upit_membership_comparison: CompactMembershipComparison,
     upit_metric_comparison: NumericMetricComparisonReport,
+    cpit_reference: ScheduleReferenceArtifactSummary,
+    pcpsp_reference: ScheduleReferenceArtifactSummary,
+    lp_cpit_reference: ScheduleReferenceArtifactSummary,
+    lp_pcpsp_reference: ScheduleReferenceArtifactSummary,
     assumptions: Vec<String>,
     limitations: Vec<String>,
 }
@@ -77,6 +101,17 @@ struct CompactMembershipComparison {
     candidate_only_block_examples: Vec<usize>,
 }
 
+#[derive(Debug, Serialize)]
+struct ScheduleReferenceArtifactSummary {
+    period_count: usize,
+    destination_count: usize,
+    resource_constraint_count: usize,
+    discount_rate: f64,
+    official_objective: f64,
+    objective_gap_vs_official: f64,
+    solution_summary: MarvinScheduleSolutionSummary,
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
@@ -90,12 +125,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(PathBuf::from)
         .unwrap_or_else(|| dataset_dir.join("outputs").join("comparison-report.json"));
     let blocks_path = dataset_dir.join("marvin.blocks");
-    let prec_path = dataset_dir.join("marvin.prec");
-    let upit_solution_path = dataset_dir.join("marvin_upit.sol");
+    let references_dir = dataset_dir.join("references");
+    let prec_path = references_dir.join("marvin.prec");
+    let upit_solution_path = references_dir.join("marvin_upit.sol");
+    let cpit_problem_path = references_dir.join("marvin.cpit");
+    let cpit_solution_path = references_dir.join("marvin_cpit_gmunoz120723.sol");
+    let pcpsp_problem_path = references_dir.join("marvin.pcpsp");
+    let pcpsp_solution_path = references_dir.join("marvin_pcpsp_gmunoz120723.sol");
+    let lp_cpit_solution_path = references_dir.join("marvin.LPcpit");
+    let lp_pcpsp_solution_path = references_dir.join("marvin.LPpcpsp");
 
-    let model = read_marvin_blocks(&blocks_path)?;
+    let model = read_benchmark_blocks(&blocks_path, "marvin")?;
     let reference_prec = read_marvin_precedence_graph(&prec_path, &model)?;
     let reference_upit_membership = read_marvin_upit_solution(&upit_solution_path, &model)?;
+    let cpit_problem = read_marvin_cpit_problem(&cpit_problem_path, &model)?;
+    let cpit_solution = read_marvin_cpit_solution(&cpit_solution_path, &model)?;
+    let pcpsp_problem = read_marvin_pcpsp_problem(&pcpsp_problem_path, &model)?;
+    let pcpsp_solution = read_marvin_pcpsp_solution(&pcpsp_solution_path, &model)?;
+    let lp_cpit_solution = read_marvin_lp_cpit_solution(&lp_cpit_solution_path, &model)?;
+    let lp_pcpsp_solution = read_marvin_lp_pcpsp_solution(&lp_pcpsp_solution_path, &model)?;
+    let cpit_summary = summarize_marvin_schedule_solution(&cpit_problem, &cpit_solution)?;
+    let pcpsp_summary = summarize_marvin_schedule_solution(&pcpsp_problem, &pcpsp_solution)?;
+    let lp_cpit_summary = summarize_marvin_schedule_solution(&cpit_problem, &lp_cpit_solution)?;
+    let lp_pcpsp_summary = summarize_marvin_schedule_solution(&pcpsp_problem, &lp_pcpsp_solution)?;
 
     let template = marvin_slope_template()?;
     let candidate_prec = build_block_precedence_graph(&model, &template)?;
@@ -172,6 +224,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         dataset_dir: relative_or_display(&dataset_dir, &repo_root),
         reference_prec_path: relative_or_display(&prec_path, &repo_root),
         reference_upit_solution_path: relative_or_display(&upit_solution_path, &repo_root),
+        reference_cpit_problem_path: relative_or_display(&cpit_problem_path, &repo_root),
+        reference_cpit_solution_path: relative_or_display(&cpit_solution_path, &repo_root),
+        reference_pcpsp_problem_path: relative_or_display(&pcpsp_problem_path, &repo_root),
+        reference_pcpsp_solution_path: relative_or_display(&pcpsp_solution_path, &repo_root),
+        reference_lp_cpit_solution_path: relative_or_display(&lp_cpit_solution_path, &repo_root),
+        reference_lp_pcpsp_solution_path: relative_or_display(
+            &lp_pcpsp_solution_path,
+            &repo_root,
+        ),
         value_column: value_column.to_string(),
         tonnage_column: tonnage_column.to_string(),
         candidate_predecessor_offsets: template
@@ -202,14 +263,58 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         upit_membership_comparison,
         upit_metric_comparison,
+        cpit_reference: ScheduleReferenceArtifactSummary {
+            period_count: cpit_problem.period_count,
+            destination_count: cpit_problem.destination_count,
+            resource_constraint_count: cpit_problem.resource_constraint_count,
+            discount_rate: cpit_problem.discount_rate,
+            official_objective: OFFICIAL_CPIT_OBJECTIVE,
+            objective_gap_vs_official: (cpit_summary.discounted_objective - OFFICIAL_CPIT_OBJECTIVE)
+                .abs(),
+            solution_summary: cpit_summary,
+        },
+        pcpsp_reference: ScheduleReferenceArtifactSummary {
+            period_count: pcpsp_problem.period_count,
+            destination_count: pcpsp_problem.destination_count,
+            resource_constraint_count: pcpsp_problem.resource_constraint_count,
+            discount_rate: pcpsp_problem.discount_rate,
+            official_objective: OFFICIAL_PCPSP_OBJECTIVE,
+            objective_gap_vs_official: (pcpsp_summary.discounted_objective
+                - OFFICIAL_PCPSP_OBJECTIVE)
+                .abs(),
+            solution_summary: pcpsp_summary,
+        },
+        lp_cpit_reference: ScheduleReferenceArtifactSummary {
+            period_count: cpit_problem.period_count,
+            destination_count: cpit_problem.destination_count,
+            resource_constraint_count: cpit_problem.resource_constraint_count,
+            discount_rate: cpit_problem.discount_rate,
+            official_objective: OFFICIAL_LP_CPIT_OBJECTIVE,
+            objective_gap_vs_official: (lp_cpit_summary.discounted_objective
+                - OFFICIAL_LP_CPIT_OBJECTIVE)
+                .abs(),
+            solution_summary: lp_cpit_summary,
+        },
+        lp_pcpsp_reference: ScheduleReferenceArtifactSummary {
+            period_count: pcpsp_problem.period_count,
+            destination_count: pcpsp_problem.destination_count,
+            resource_constraint_count: pcpsp_problem.resource_constraint_count,
+            discount_rate: pcpsp_problem.discount_rate,
+            official_objective: OFFICIAL_LP_PCPSP_OBJECTIVE,
+            objective_gap_vs_official: (lp_pcpsp_summary.discounted_objective
+                - OFFICIAL_LP_PCPSP_OBJECTIVE)
+                .abs(),
+            solution_summary: lp_pcpsp_summary,
+        },
         assumptions: vec![
             "marving-info.txt was used to confirm that field_4 is tonnage and field_7 is proc_profit ($/ton), and that mine_cost = 0.9 $/ton.".to_owned(),
             "The candidate precedence template uses the 17-offset Marvin slope pattern (45°/8-niveles): 5 cross at dk=1, 4 diagonal corners at dk=3, 8 near-circle at dk=5.".to_owned(),
             "total_economic_objective = sum((max(proc_profit, 0) - 0.9) × tonnage). Official UPIT target: 1,415,655,436.".to_owned(),
+            "CPIT/PCPSP objective audits apply the MineLib-style discounted objective sum(value × fraction / (1 + discount_rate)^period) over the normalized reference problems and solutions.".to_owned(),
         ],
         limitations: vec![
-            "This benchmark does not yet normalize or compare CPIT, PCPSP or LP relaxation artifacts (pending MR-170).".to_owned(),
-            "UPIT comparison is against the existing positive-block-closure heuristic, not an exact maximum-closure solver (pending MR-155/MR-156).".to_owned(),
+            "This benchmark now audits CPIT, PCPSP and LP reference artifacts, but it still lacks an internal mine-rs scheduler to compare against those references period-by-period.".to_owned(),
+            "UPIT comparison still uses the positive-block-closure heuristic in the Marvin benchmark; the exact UPL backend exists for smaller cases but the current Edmonds-Karp implementation is not yet benchmark-scalable for Marvin-sized instances (pending MR-173/MR-174).".to_owned(),
             "The prec template was reverse-engineered from the reference file; formal proof of completeness against the MineLib algorithm is pending (pending MR-154).".to_owned(),
         ],
     };

@@ -2,7 +2,6 @@
 
 mod benches;
 mod comparison;
-mod marvin;
 mod max_closure;
 mod phase_design;
 mod phases;
@@ -21,14 +20,6 @@ pub use comparison::{
     NumericMetricTolerance, PrecedenceGraphComparisonReport, compare_block_memberships,
     compare_named_numeric_metrics, compare_precedence_graphs, compare_upit_reports,
 };
-pub use marvin::{
-    read_marvin_precedence_graph, read_marvin_upit_block_values, read_marvin_upit_solution,
-};
-pub use phases::{PhaseAssignment, PhaseTaggingReport, assign_phases_from_column};
-pub use precedence::{
-    BlockPrecedenceTemplate, PrecedenceEdge, PrecedenceGraph, PrecedenceNode, PrecedenceOffset,
-    build_block_precedence_graph, read_precedence_graph_json, write_precedence_graph_json,
-};
 pub use max_closure::{
     MaxClosureArc, MaxClosureArcKind, MaxClosureGraph, MaxClosureNodeId, build_max_closure_graph,
     verify_closure,
@@ -36,9 +27,14 @@ pub use max_closure::{
 pub use phase_design::{
     NestingAccessRules, PhaseDesign, PushbackPlan, derive_pushbacks_from_nested_shells,
 };
+pub use phases::{PhaseAssignment, PhaseTaggingReport, assign_phases_from_column};
 pub use pit_shells::{
-    PitShell, PitShellMetrics, PitShellSet, compute_pit_shell_metrics,
-    generate_nested_shells, generate_nested_shells_from_model, uniform_revenue_factors,
+    PitShell, PitShellMetrics, PitShellSet, compute_pit_shell_metrics, generate_nested_shells,
+    generate_nested_shells_from_model, uniform_revenue_factors,
+};
+pub use precedence::{
+    BlockPrecedenceTemplate, PrecedenceEdge, PrecedenceGraph, PrecedenceNode, PrecedenceOffset,
+    build_block_precedence_graph, read_precedence_graph_json, write_precedence_graph_json,
 };
 pub use pushback::{
     PushbackGenerationRules, PushbackPrototype, PushbackPrototypeReport, build_pushback_prototype,

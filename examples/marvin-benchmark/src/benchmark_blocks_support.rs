@@ -3,19 +3,16 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
-use mine_blockmodel::{BlockModel, ColumnData};
-use mine_core::{
-    BlockDimensions, ColumnId, ColumnLogicalType, ColumnMiningRole, ColumnSchema, ColumnSchemaSet,
-    Coordinate3D, GridDefinition, GridShape, Metadata, MetadataValue, MineError,
+use mine_sdk::{
+    BlockDimensions, BlockModel, ColumnData, ColumnId, ColumnLogicalType, ColumnMiningRole,
+    ColumnSchema, ColumnSchemaSet, Coordinate3D, GridDefinition, GridIndex, GridShape, Metadata,
+    MetadataValue, MineError, ijk_to_linear,
 };
-use mine_indexing::{GridIndex, ijk_to_linear};
 
-use crate::io_error;
-
-const MARVIN_BLOCKS_EXPECTED_FIELDS: usize = 8;
+const BENCHMARK_BLOCKS_EXPECTED_FIELDS: usize = 8;
 
 #[derive(Debug, Clone)]
-struct MarvinBlockRow {
+struct BenchmarkBlockRow {
     source_block_id: i64,
     i: usize,
     j: usize,
@@ -27,15 +24,28 @@ struct MarvinBlockRow {
     linear_index: usize,
 }
 
-/// Lee un archivo `marvin.blocks` como `BlockModel` sparse usando una grilla unitaria derivada de
-/// las columnas enteras `i/j/k` detectadas en el artefacto.
-pub fn read_marvin_blocks(path: impl AsRef<Path>) -> Result<BlockModel, MineError> {
-    let rows = read_marvin_rows(path.as_ref())?;
+/// Lee un archivo benchmark `*.blocks` como `BlockModel` sparse usando una grilla unitaria
+/// derivada de las columnas enteras `i/j/k` detectadas en el artefacto.
+pub fn read_benchmark_blocks(
+    path: impl AsRef<Path>,
+    benchmark_family: &str,
+) -> Result<BlockModel, MineError> {
+    let benchmark_family = benchmark_family.trim();
+    if benchmark_family.is_empty() {
+        return Err(MineError::invalid_parameter(
+            "benchmark_family",
+            "benchmark family must not be empty",
+        ));
+    }
+
+    let path = path.as_ref();
+    let file_label = blocks_file_label(path);
+    let rows = read_benchmark_rows(path, &file_label)?;
 
     if rows.is_empty() {
-        return Err(io_error(
-            "marvin.blocks file must contain at least one data row",
-        ));
+        return Err(MineError::Io {
+            message: format!("{file_label} file must contain at least one data row"),
+        });
     }
 
     let max_i = rows
@@ -71,7 +81,7 @@ pub fn read_marvin_blocks(path: impl AsRef<Path>) -> Result<BlockModel, MineErro
     for window in rows.windows(2) {
         if window[0].linear_index == window[1].linear_index {
             return Err(MineError::validation(format!(
-                "marvin.blocks contains duplicate sparse index ({}, {}, {})",
+                "{file_label} contains duplicate sparse index ({}, {}, {})",
                 window[1].i, window[1].j, window[1].k
             )));
         }
@@ -117,11 +127,11 @@ pub fn read_marvin_blocks(path: impl AsRef<Path>) -> Result<BlockModel, MineErro
     let metadata = Metadata::from_entries(vec![
         (
             "benchmark_family".to_owned(),
-            MetadataValue::Text("marvin".to_owned()),
+            MetadataValue::Text(benchmark_family.to_owned()),
         ),
         (
             "source_format".to_owned(),
-            MetadataValue::Text("marvin.blocks".to_owned()),
+            MetadataValue::Text(file_label.clone()),
         ),
         (
             "grid_assumption".to_owned(),
@@ -159,18 +169,20 @@ pub fn read_marvin_blocks(path: impl AsRef<Path>) -> Result<BlockModel, MineErro
     BlockModel::new_sparse(grid, schema, metadata, materialized_linear_indices, columns)
 }
 
-fn read_marvin_rows(path: &Path) -> Result<Vec<MarvinBlockRow>, MineError> {
-    let file = File::open(path)
-        .map_err(|error| io_error(format!("unable to open marvin.blocks file: {error}")))?;
+fn read_benchmark_rows(
+    path: &Path,
+    file_label: &str,
+) -> Result<Vec<BenchmarkBlockRow>, MineError> {
+    let file = File::open(path).map_err(|error| MineError::Io {
+        message: format!("unable to open {file_label} file: {error}"),
+    })?;
     let reader = BufReader::new(file);
     let mut rows = Vec::new();
 
     for (row_offset, line_result) in reader.lines().enumerate() {
         let row_number = row_offset + 1;
-        let line = line_result.map_err(|error| {
-            io_error(format!(
-                "unable to read marvin.blocks row {row_number}: {error}"
-            ))
+        let line = line_result.map_err(|error| MineError::Io {
+            message: format!("unable to read {file_label} row {row_number}: {error}"),
         })?;
         let trimmed = line.trim();
 
@@ -179,13 +191,15 @@ fn read_marvin_rows(path: &Path) -> Result<Vec<MarvinBlockRow>, MineError> {
         }
 
         let fields = trimmed.split_whitespace().collect::<Vec<_>>();
-        if fields.len() != MARVIN_BLOCKS_EXPECTED_FIELDS {
-            return Err(io_error(format!(
-                "marvin.blocks row {row_number} must contain exactly {MARVIN_BLOCKS_EXPECTED_FIELDS} whitespace-delimited values"
-            )));
+        if fields.len() != BENCHMARK_BLOCKS_EXPECTED_FIELDS {
+            return Err(MineError::Io {
+                message: format!(
+                    "{file_label} row {row_number} must contain exactly {BENCHMARK_BLOCKS_EXPECTED_FIELDS} whitespace-delimited values"
+                ),
+            });
         }
 
-        rows.push(MarvinBlockRow {
+        rows.push(BenchmarkBlockRow {
             source_block_id: parse_i64_field(fields[0], row_number, "field_0")?,
             i: parse_usize_field(fields[1], row_number, "field_1")?,
             j: parse_usize_field(fields[2], row_number, "field_2")?,
@@ -201,33 +215,37 @@ fn read_marvin_rows(path: &Path) -> Result<Vec<MarvinBlockRow>, MineError> {
     Ok(rows)
 }
 
+fn blocks_file_label(path: &Path) -> String {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map_or_else(|| "benchmark.blocks".to_owned(), ToOwned::to_owned)
+}
+
 fn parse_i64_field(value: &str, row_number: usize, field_name: &str) -> Result<i64, MineError> {
-    value.parse::<i64>().map_err(|error| {
-        io_error(format!(
-            "marvin.blocks row {row_number} contains invalid integer in {field_name}: {error}"
-        ))
+    value.parse::<i64>().map_err(|error| MineError::Io {
+        message: format!("blocks row {row_number} contains invalid integer in {field_name}: {error}"),
     })
 }
 
-fn parse_usize_field(value: &str, row_number: usize, field_name: &str) -> Result<usize, MineError> {
-    value.parse::<usize>().map_err(|error| {
-        io_error(format!(
-            "marvin.blocks row {row_number} contains invalid grid index in {field_name}: {error}"
-        ))
+fn parse_usize_field(
+    value: &str,
+    row_number: usize,
+    field_name: &str,
+) -> Result<usize, MineError> {
+    value.parse::<usize>().map_err(|error| MineError::Io {
+        message: format!("blocks row {row_number} contains invalid grid index in {field_name}: {error}"),
     })
 }
 
 fn parse_f64_field(value: &str, row_number: usize, field_name: &str) -> Result<f64, MineError> {
-    let parsed = value.parse::<f64>().map_err(|error| {
-        io_error(format!(
-            "marvin.blocks row {row_number} contains invalid float in {field_name}: {error}"
-        ))
+    let parsed = value.parse::<f64>().map_err(|error| MineError::Io {
+        message: format!("blocks row {row_number} contains invalid float in {field_name}: {error}"),
     })?;
 
     if !parsed.is_finite() {
-        return Err(io_error(format!(
-            "marvin.blocks row {row_number} contains non-finite float in {field_name}"
-        )));
+        return Err(MineError::Io {
+            message: format!("blocks row {row_number} contains non-finite float in {field_name}"),
+        });
     }
 
     Ok(parsed)

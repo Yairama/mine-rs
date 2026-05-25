@@ -249,9 +249,9 @@ cargo run -p marvin-planning
 cargo run -p marvin-benchmark
 ```
 
-El estado actual de paridad del benchmark Marvin queda versionado en `datasets/benchmarks/marvin/parity-report.json`, y la comparación reproducible hoy disponible para `marvin.prec` y `marvin_upit.sol` queda registrada en `datasets/benchmarks/marvin/comparison-report.json`.
+El estado actual de paridad del benchmark Marvin queda versionado en `datasets/benchmarks/marvin/outputs/parity-report.json`, y la comparación reproducible hoy disponible queda registrada en `datasets/benchmarks/marvin/outputs/comparison-report.json`.
 
-`marvin-planning` aplica el workflow experimental hoy disponible sobre Marvin: precedencias deterministas, `upit` heurístico, bancos geométricos, schedule por bancos y pushbacks sintéticos. `marvin-benchmark` normaliza además `marvin.prec` y `marvin_upit.sol`, y muestra con métricas explícitas cuánto se parecen hoy esos artefactos externos a las salidas abiertas actuales del SDK. Estas salidas siguen siendo útiles para exploración y benchmarking interno, pero no deben interpretarse todavía como paridad validada con todos los resultados oficiales de Marvin.
+Los artefactos externos/versionados de Marvin viven en `datasets/benchmarks/marvin/references/`, mientras que `datasets/benchmarks/marvin/outputs/` queda reservado para reportes generados por el repo. `marvin-planning` aplica el workflow experimental hoy disponible sobre Marvin: precedencias deterministas, `upit` heurístico, bancos geométricos, schedule por bancos y pushbacks sintéticos. `marvin-benchmark` normaliza y audita `prec`, `upit`, `cpit`, `pcpsp` y las relajaciones LP, y muestra con métricas explícitas cuánto se parecen hoy esos artefactos externos a las salidas abiertas actuales del SDK. Estas salidas siguen siendo útiles para exploración y benchmarking interno, pero no deben interpretarse todavía como paridad validada con todos los resultados oficiales de Marvin.
 
 ## Desarrollo local de Python
 

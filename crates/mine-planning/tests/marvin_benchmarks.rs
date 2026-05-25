@@ -1,15 +1,25 @@
 //! Tests de integración para normalización y comparación del benchmark Marvin.
 
+#[path = "../../../examples/marvin-benchmark/src/marvin_support.rs"]
+mod marvin_support;
+#[path = "../../../examples/marvin-benchmark/src/benchmark_blocks_support.rs"]
+mod benchmark_blocks_support;
+
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use benchmark_blocks_support::read_benchmark_blocks;
+use marvin_support::{
+    read_marvin_cpit_problem, read_marvin_cpit_solution, read_marvin_lp_cpit_solution,
+    read_marvin_lp_pcpsp_solution, read_marvin_pcpsp_problem, read_marvin_pcpsp_solution,
+    read_marvin_precedence_graph, read_marvin_upit_block_values, read_marvin_upit_solution,
+    summarize_marvin_schedule_solution,
+};
 use mine_core::ColumnId;
-use mine_io::read_marvin_blocks;
 use mine_planning::{
     BlockPrecedenceTemplate, NumericMetricTolerance, PrecedenceOffset,
     build_block_precedence_graph, build_upit_prototype, compare_block_memberships,
-    compare_named_numeric_metrics, compare_precedence_graphs, read_marvin_precedence_graph,
-    read_marvin_upit_block_values, read_marvin_upit_solution,
+    compare_named_numeric_metrics, compare_precedence_graphs,
 };
 
 fn marvin_dir() -> PathBuf {
@@ -19,6 +29,10 @@ fn marvin_dir() -> PathBuf {
         .join("datasets")
         .join("benchmarks")
         .join("marvin")
+}
+
+fn marvin_references_dir() -> PathBuf {
+    marvin_dir().join("references")
 }
 
 /// Plantilla de talud Marvin 45°/8-niveles (17 offsets). Reverse-engineered en MR-167.
@@ -51,11 +65,13 @@ fn marvin_slope_template() -> BlockPrecedenceTemplate {
 #[test]
 fn normalize_staged_marvin_prec_and_upit_solution() {
     let dir = marvin_dir();
-    let model = read_marvin_blocks(dir.join("marvin.blocks")).expect("marvin.blocks should load");
+    let references_dir = marvin_references_dir();
+    let model = read_benchmark_blocks(dir.join("marvin.blocks"), "marvin")
+        .expect("marvin.blocks should load");
 
-    let precedence_graph = read_marvin_precedence_graph(dir.join("marvin.prec"), &model)
+    let precedence_graph = read_marvin_precedence_graph(references_dir.join("marvin.prec"), &model)
         .expect("marvin.prec should normalize");
-    let upit_solution = read_marvin_upit_solution(dir.join("marvin_upit.sol"), &model)
+    let upit_solution = read_marvin_upit_solution(references_dir.join("marvin_upit.sol"), &model)
         .expect("marvin_upit.sol should normalize");
 
     assert_eq!(precedence_graph.nodes().len(), model.block_count());
@@ -74,14 +90,16 @@ fn normalize_staged_marvin_prec_and_upit_solution() {
 #[test]
 fn marvin_slope_template_reaches_full_prec_parity() {
     let dir = marvin_dir();
-    let model = read_marvin_blocks(dir.join("marvin.blocks")).expect("marvin.blocks should load");
-    let reference_prec = read_marvin_precedence_graph(dir.join("marvin.prec"), &model)
+    let references_dir = marvin_references_dir();
+    let model = read_benchmark_blocks(dir.join("marvin.blocks"), "marvin")
+        .expect("marvin.blocks should load");
+    let reference_prec = read_marvin_precedence_graph(references_dir.join("marvin.prec"), &model)
         .expect("marvin.prec should normalize");
-    let reference_upit = read_marvin_upit_solution(dir.join("marvin_upit.sol"), &model)
+    let reference_upit = read_marvin_upit_solution(references_dir.join("marvin_upit.sol"), &model)
         .expect("marvin_upit.sol should normalize");
 
-    let candidate_prec = build_block_precedence_graph(&model, &marvin_slope_template())
-        .expect("prec should build");
+    let candidate_prec =
+        build_block_precedence_graph(&model, &marvin_slope_template()).expect("prec should build");
     let precedence_comparison = compare_precedence_graphs(&reference_prec, &candidate_prec);
 
     // La plantilla 17-offset debe reproducir exactamente el prec de referencia.
@@ -115,9 +133,13 @@ fn marvin_slope_template_reaches_full_prec_parity() {
     let reference_metrics =
         membership_metrics(&model, &reference_upit, &value_column, &tonnage_column)
             .expect("reference metrics should compute");
-    let candidate_metrics =
-        membership_metrics(&model, &candidate_upit.selected_linear_indices, &value_column, &tonnage_column)
-            .expect("candidate metrics should compute");
+    let candidate_metrics = membership_metrics(
+        &model,
+        &candidate_upit.selected_linear_indices,
+        &value_column,
+        &tonnage_column,
+    )
+    .expect("candidate metrics should compute");
 
     let metric_comparison = compare_named_numeric_metrics(
         &reference_metrics,
@@ -242,10 +264,12 @@ fn row_index_for_linear_index(
 #[test]
 fn read_marvin_upit_block_values_sums_to_official_upit_objective_for_selected_blocks() {
     let dir = marvin_dir();
-    let model = read_marvin_blocks(dir.join("marvin.blocks")).expect("marvin.blocks should load");
-    let upit_solution = read_marvin_upit_solution(dir.join("marvin_upit.sol"), &model)
+    let references_dir = marvin_references_dir();
+    let model = read_benchmark_blocks(dir.join("marvin.blocks"), "marvin")
+        .expect("marvin.blocks should load");
+    let upit_solution = read_marvin_upit_solution(references_dir.join("marvin_upit.sol"), &model)
         .expect("marvin_upit.sol should normalize");
-    let block_values = read_marvin_upit_block_values(dir.join("marvin.upit"), &model)
+    let block_values = read_marvin_upit_block_values(references_dir.join("marvin.upit"), &model)
         .expect("marvin.upit should normalize");
 
     assert_eq!(
@@ -254,8 +278,7 @@ fn read_marvin_upit_block_values_sums_to_official_upit_objective_for_selected_bl
         "marvin.upit must contain one entry per block"
     );
 
-    let selected_set: std::collections::BTreeSet<usize> =
-        upit_solution.iter().copied().collect();
+    let selected_set: std::collections::BTreeSet<usize> = upit_solution.iter().copied().collect();
     let objective_sum: f64 = block_values
         .iter()
         .filter(|(linear_index, _)| selected_set.contains(linear_index))
@@ -268,3 +291,110 @@ fn read_marvin_upit_block_values_sums_to_official_upit_objective_for_selected_bl
     );
 }
 
+#[test]
+fn read_marvin_cpit_reference_matches_official_discounted_objective() {
+    let dir = marvin_dir();
+    let references_dir = marvin_references_dir();
+    let model = read_benchmark_blocks(dir.join("marvin.blocks"), "marvin")
+        .expect("marvin.blocks should load");
+    let problem = read_marvin_cpit_problem(references_dir.join("marvin.cpit"), &model)
+        .expect("cpit should load");
+    let solution =
+        read_marvin_cpit_solution(references_dir.join("marvin_cpit_gmunoz120723.sol"), &model)
+            .expect("cpit solution should load");
+
+    let summary = summarize_marvin_schedule_solution(&problem, &solution)
+        .expect("cpit summary should compute");
+
+    assert_eq!(summary.unique_block_count, 8516);
+    assert_eq!(summary.used_period_count, 16);
+    assert_eq!(summary.used_destination_count, 1);
+    assert!(
+        (summary.discounted_objective - 820_726_048.0_f64).abs() < 1.0,
+        "discounted CPIT objective must match official target 820,726,048 (got {})",
+        summary.discounted_objective
+    );
+    assert!(
+        summary
+            .resource_summaries
+            .iter()
+            .all(|resource| resource.max_period_excess <= 1e-6),
+        "CPIT reference solution should respect resource limits"
+    );
+}
+
+#[test]
+fn read_marvin_pcpsp_reference_matches_official_discounted_objective() {
+    let dir = marvin_dir();
+    let references_dir = marvin_references_dir();
+    let model = read_benchmark_blocks(dir.join("marvin.blocks"), "marvin")
+        .expect("marvin.blocks should load");
+    let problem = read_marvin_pcpsp_problem(references_dir.join("marvin.pcpsp"), &model)
+        .expect("pcpsp should load");
+    let solution =
+        read_marvin_pcpsp_solution(references_dir.join("marvin_pcpsp_gmunoz120723.sol"), &model)
+            .expect("pcpsp solution should load");
+
+    let summary = summarize_marvin_schedule_solution(&problem, &solution)
+        .expect("pcpsp summary should compute");
+
+    assert_eq!(summary.unique_block_count, 8516);
+    assert_eq!(summary.used_period_count, 14);
+    assert_eq!(summary.used_destination_count, 2);
+    assert!(
+        (summary.discounted_objective - 885_968_070.0_f64).abs() < 10.0,
+        "discounted PCPSP objective must match official target 885,968,070 (got {})",
+        summary.discounted_objective
+    );
+    assert!(
+        summary
+            .resource_summaries
+            .iter()
+            .all(|resource| resource.max_period_excess <= 0.1),
+        "PCPSP reference solution should exceed limits by at most rounding noise"
+    );
+}
+
+#[test]
+fn read_marvin_lp_cpit_reference_preserves_fractional_assignments() {
+    let dir = marvin_dir();
+    let references_dir = marvin_references_dir();
+    let model = read_benchmark_blocks(dir.join("marvin.blocks"), "marvin")
+        .expect("marvin.blocks should load");
+    let problem = read_marvin_cpit_problem(references_dir.join("marvin.cpit"), &model)
+        .expect("cpit should load");
+    let solution = read_marvin_lp_cpit_solution(references_dir.join("marvin.LPcpit"), &model)
+        .expect("lp cpit should load");
+
+    let summary = summarize_marvin_schedule_solution(&problem, &solution)
+        .expect("lp cpit summary should compute");
+
+    assert!(summary.fractional_assignment_count > 0);
+    assert!(
+        (summary.discounted_objective - 863_915_586.9532448_f64).abs() < 1e-6,
+        "discounted LP-CPIT objective must match the normalized local file sum (got {})",
+        summary.discounted_objective
+    );
+}
+
+#[test]
+fn read_marvin_lp_pcpsp_reference_preserves_fractional_assignments() {
+    let dir = marvin_dir();
+    let references_dir = marvin_references_dir();
+    let model = read_benchmark_blocks(dir.join("marvin.blocks"), "marvin")
+        .expect("marvin.blocks should load");
+    let problem = read_marvin_pcpsp_problem(references_dir.join("marvin.pcpsp"), &model)
+        .expect("pcpsp should load");
+    let solution = read_marvin_lp_pcpsp_solution(references_dir.join("marvin.LPpcpsp"), &model)
+        .expect("lp pcpsp should load");
+
+    let summary = summarize_marvin_schedule_solution(&problem, &solution)
+        .expect("lp pcpsp summary should compute");
+
+    assert!(summary.fractional_assignment_count > 0);
+    assert!(
+        (summary.discounted_objective - 911_699_907.9443411_f64).abs() < 1e-6,
+        "discounted LP-PCPSP objective must match the normalized local file sum (got {})",
+        summary.discounted_objective
+    );
+}

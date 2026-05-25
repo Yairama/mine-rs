@@ -30,7 +30,6 @@ const PARQUET_MODEL_METADATA_KEY: &str = "mine_rs:model_metadata";
 mod csv;
 mod inference;
 mod internal;
-mod marvin;
 mod parquet;
 mod variogram;
 mod vtu;
@@ -44,7 +43,6 @@ pub use inference::{
     infer_csv_schema, infer_parquet_schema,
 };
 pub(crate) use internal::*;
-pub use marvin::read_marvin_blocks;
 pub use parquet::{
     block_model_from_record_batch, block_model_to_record_batch, read_block_model_parquet,
     write_block_model_parquet,

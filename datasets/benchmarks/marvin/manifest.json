@@ -3,6 +3,7 @@
   "status": "staged",
   "notes": [
     "This manifest inventories benchmark artifacts currently staged inside the repository.",
+    "External benchmark references now live under datasets/benchmarks/marvin/references/ so outputs/ can remain reserved for generated artifacts.",
     "Column semantics beyond the axis-like integer ranges remain unverified and must be confirmed before schema-specific loaders are implemented.",
     "The public Marvin page referenced during planning was not machine-verifiable at planning time because it responded behind a WAF, so this manifest only records artifacts observed locally."
   ],

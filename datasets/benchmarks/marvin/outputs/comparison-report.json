@@ -1,7 +1,13 @@
 {
   "dataset_dir": "datasets\\benchmarks\\marvin",
-  "reference_prec_path": "datasets\\benchmarks\\marvin\\marvin.prec",
-  "reference_upit_solution_path": "datasets\\benchmarks\\marvin\\marvin_upit.sol",
+  "reference_prec_path": "datasets\\benchmarks\\marvin\\references\\marvin.prec",
+  "reference_upit_solution_path": "datasets\\benchmarks\\marvin\\references\\marvin_upit.sol",
+  "reference_cpit_problem_path": "datasets\\benchmarks\\marvin\\references\\marvin.cpit",
+  "reference_cpit_solution_path": "datasets\\benchmarks\\marvin\\references\\marvin_cpit_gmunoz120723.sol",
+  "reference_pcpsp_problem_path": "datasets\\benchmarks\\marvin\\references\\marvin.pcpsp",
+  "reference_pcpsp_solution_path": "datasets\\benchmarks\\marvin\\references\\marvin_pcpsp_gmunoz120723.sol",
+  "reference_lp_cpit_solution_path": "datasets\\benchmarks\\marvin\\references\\marvin.LPcpit",
+  "reference_lp_pcpsp_solution_path": "datasets\\benchmarks\\marvin\\references\\marvin.LPpcpsp",
   "value_column": "field_7",
   "tonnage_column": "field_4",
   "candidate_predecessor_offsets": [
@@ -186,14 +192,159 @@
     "reference_only_metrics": [],
     "candidate_only_metrics": []
   },
+  "cpit_reference": {
+    "period_count": 20,
+    "destination_count": 1,
+    "resource_constraint_count": 2,
+    "discount_rate": 0.1,
+    "official_objective": 820726048.0,
+    "objective_gap_vs_official": 0.04700946807861328,
+    "solution_summary": {
+      "assignment_count": 8516,
+      "unique_block_count": 8516,
+      "fractional_assignment_count": 0,
+      "used_period_count": 16,
+      "used_destination_count": 1,
+      "total_fraction": 8516.0,
+      "min_block_fraction_sum": 1.0,
+      "max_block_fraction_sum": 1.0,
+      "undiscounted_objective": 1415655436.1367276,
+      "discounted_objective": 820726047.9529905,
+      "resource_summaries": [
+        {
+          "resource_index": 0,
+          "active_period_count": 16,
+          "max_period_usage": 58799906.5010002,
+          "max_period_limit": 60000000.0,
+          "max_period_excess": 0.0
+        },
+        {
+          "resource_index": 1,
+          "active_period_count": 16,
+          "max_period_usage": 19997350.50499999,
+          "max_period_limit": 20000000.0,
+          "max_period_excess": 0.0
+        }
+      ]
+    }
+  },
+  "pcpsp_reference": {
+    "period_count": 20,
+    "destination_count": 2,
+    "resource_constraint_count": 2,
+    "discount_rate": 0.1,
+    "official_objective": 885968070.0,
+    "objective_gap_vs_official": 8.508825063705444,
+    "solution_summary": {
+      "assignment_count": 8529,
+      "unique_block_count": 8516,
+      "fractional_assignment_count": 64,
+      "used_period_count": 14,
+      "used_destination_count": 2,
+      "total_fraction": 8515.999915999995,
+      "min_block_fraction_sum": 0.999988,
+      "max_block_fraction_sum": 1.0,
+      "undiscounted_objective": 1357428653.384364,
+      "discounted_objective": 885968061.4911749,
+      "resource_summaries": [
+        {
+          "resource_index": 0,
+          "active_period_count": 14,
+          "max_period_usage": 59989507.49363996,
+          "max_period_limit": 60000000.0,
+          "max_period_excess": 0.0
+        },
+        {
+          "resource_index": 1,
+          "active_period_count": 14,
+          "max_period_usage": 20000000.062586267,
+          "max_period_limit": 20000000.0,
+          "max_period_excess": 0.06258626654744148
+        }
+      ]
+    }
+  },
+  "lp_cpit_reference": {
+    "period_count": 20,
+    "destination_count": 1,
+    "resource_constraint_count": 2,
+    "discount_rate": 0.1,
+    "official_objective": 863916131.0,
+    "objective_gap_vs_official": 544.046755194664,
+    "solution_summary": {
+      "assignment_count": 27424,
+      "unique_block_count": 8516,
+      "fractional_assignment_count": 23906,
+      "used_period_count": 16,
+      "used_destination_count": 1,
+      "total_fraction": 8515.997218002998,
+      "min_block_fraction_sum": 0.999999,
+      "max_block_fraction_sum": 1.0,
+      "undiscounted_objective": 1415654644.4126837,
+      "discounted_objective": 863915586.9532448,
+      "resource_summaries": [
+        {
+          "resource_index": 0,
+          "active_period_count": 16,
+          "max_period_usage": 56547743.82083853,
+          "max_period_limit": 60000000.0,
+          "max_period_excess": 0.0
+        },
+        {
+          "resource_index": 1,
+          "active_period_count": 16,
+          "max_period_usage": 20000006.31826137,
+          "max_period_limit": 20000000.0,
+          "max_period_excess": 6.318261370062828
+        }
+      ]
+    }
+  },
+  "lp_pcpsp_reference": {
+    "period_count": 20,
+    "destination_count": 2,
+    "resource_constraint_count": 2,
+    "discount_rate": 0.1,
+    "official_objective": 911704665.0,
+    "objective_gap_vs_official": 4757.055658936501,
+    "solution_summary": {
+      "assignment_count": 22819,
+      "unique_block_count": 8516,
+      "fractional_assignment_count": 18261,
+      "used_period_count": 14,
+      "used_destination_count": 2,
+      "total_fraction": 8516.002708999702,
+      "min_block_fraction_sum": 1.0,
+      "max_block_fraction_sum": 1.000001,
+      "undiscounted_objective": 1357596553.3994923,
+      "discounted_objective": 911699907.9443411,
+      "resource_summaries": [
+        {
+          "resource_index": 0,
+          "active_period_count": 14,
+          "max_period_usage": 59212997.565736175,
+          "max_period_limit": 60000000.0,
+          "max_period_excess": 0.0
+        },
+        {
+          "resource_index": 1,
+          "active_period_count": 14,
+          "max_period_usage": 20000053.372209705,
+          "max_period_limit": 20000000.0,
+          "max_period_excess": 53.37220970541239
+        }
+      ]
+    }
+  },
   "assumptions": [
     "marving-info.txt was used to confirm that field_4 is tonnage and field_7 is proc_profit ($/ton), and that mine_cost = 0.9 $/ton.",
     "The candidate precedence template uses the 17-offset Marvin slope pattern (45°/8-niveles): 5 cross at dk=1, 4 diagonal corners at dk=3, 8 near-circle at dk=5.",
-    "total_economic_objective = sum((max(proc_profit, 0) - 0.9) × tonnage). Official UPIT target: 1,415,655,436."
+    "total_economic_objective = sum((max(proc_profit, 0) - 0.9) × tonnage). Official UPIT target: 1,415,655,436.",
+    "CPIT/PCPSP objective audits apply the MineLib-style discounted objective sum(value × fraction / (1 + discount_rate)^period) over the normalized reference problems and solutions."
   ],
   "limitations": [
-    "This benchmark does not yet normalize or compare CPIT, PCPSP or LP relaxation artifacts (pending MR-170).",
-    "UPIT comparison is against the existing positive-block-closure heuristic, not an exact maximum-closure solver (pending MR-155/MR-156).",
+    "This benchmark now audits CPIT, PCPSP and LP reference artifacts, but it still lacks an internal mine-rs scheduler to compare against those references period-by-period.",
+    "UPIT comparison still uses the positive-block-closure heuristic in the Marvin benchmark; the exact UPL backend exists for smaller cases but the current Edmonds-Karp implementation is not yet benchmark-scalable for Marvin-sized instances (pending MR-173/MR-174).",
     "The prec template was reverse-engineered from the reference file; formal proof of completeness against the MineLib algorithm is pending (pending MR-154)."
   ]
 }

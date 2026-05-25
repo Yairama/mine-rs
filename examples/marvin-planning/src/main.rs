@@ -6,16 +6,20 @@
 //! Si no se especifican argumentos, el dataset se toma desde `datasets/benchmarks/marvin/marvin.blocks`
 //! y el reporte se escribe en `datasets/benchmarks/marvin/outputs/planning-report.json`.
 
+#[path = "../../marvin-benchmark/src/benchmark_blocks_support.rs"]
+mod benchmark_blocks_support;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
 use std::path::PathBuf;
 
+use benchmark_blocks_support::read_benchmark_blocks;
 use mine_sdk::{
     BenchAssignment, BenchParameters, BlockModel, BlockPrecedenceTemplate, ColumnData, ColumnId,
     MineError, PrecedenceOffset, PushbackGenerationRules, ScheduleConstraints, ScheduleEntry,
     assign_benches, build_block_precedence_graph, build_pushback_prototype, build_schedule,
-    build_upit_prototype, read_marvin_blocks,
+    build_upit_prototype,
 };
 use serde::Serialize;
 
@@ -57,7 +61,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nth(2)
         .map(PathBuf::from)
         .unwrap_or_else(|| marvin_dir.join("outputs").join("planning-report.json"));
-    let model = read_marvin_blocks(&dataset_path)?;
+    let model = read_benchmark_blocks(&dataset_path, "marvin")?;
     let value_column = ColumnId::new("field_7")?;
     let tonnage_column = ColumnId::new("field_4")?;
     let template = BlockPrecedenceTemplate::new(vec![
@@ -100,7 +104,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         pushback_count: pushback_report.pushbacks.len(),
         pushbacks: pushback_report.pushbacks.clone(),
         assumptions: vec![
-            "marvin.blocks is loaded with the current unit-grid i/j/k staging used by read_marvin_blocks(...).".to_owned(),
+            "marvin.blocks is loaded with the current unit-grid i/j/k staging used by benchmark_blocks_support::read_benchmark_blocks(..., \"marvin\").".to_owned(),
             "field_7 is treated as value and field_4 as tonnage only for this experimental workflow.".to_owned(),
             format!(
                 "Phase labels are synthetic bench bands of {PHASE_BENCH_SPAN} benches each, not official Marvin phases."

@@ -1,7 +1,7 @@
 {
   "instance": "marvin",
   "status": "partial",
-  "updated_from": "local repository state with staged Marvin references",
+  "updated_from": "local repository state with reference artifacts isolated under datasets/benchmarks/marvin/references/",
   "coverage_matrix": [
     {
       "output": "blocks",
@@ -9,9 +9,9 @@
       "mine_rs_status": "reproduced",
       "comparable_status": "yes",
       "notes": [
-        "datasets/benchmarks/marvin/marvin.blocks is versioned locally",
-        "read_marvin_blocks(...) loads the instance into BlockModel",
-        "cargo run -p marvin-inspect emits a reproducible JSON summary"
+        "datasets/benchmarks/marvin/marvin.blocks remains the canonical open block model fixture.",
+        "read_marvin_blocks(...) loads the instance into BlockModel.",
+        "cargo run -p marvin-inspect emits a reproducible JSON summary."
       ]
     },
     {
@@ -20,20 +20,20 @@
       "mine_rs_status": "normalized-and-compared",
       "comparable_status": "yes",
       "notes": [
-        "read_marvin_precedence_graph(...) normalizes marvin.prec into PrecedenceGraph using source_block_id -> linear_index mapping",
-        "datasets/benchmarks/marvin/comparison-report.json captures the current comparison against the open mine-rs precedence template",
-        "Current edge_jaccard_index versus the open mine-rs candidate is 0.37616098833286454"
+        "examples/marvin-benchmark/src/marvin_support.rs normalizes datasets/benchmarks/marvin/references/marvin.prec into PrecedenceGraph using source_block_id -> linear_index mapping.",
+        "datasets/benchmarks/marvin/outputs/comparison-report.json captures the current comparison against the open mine-rs precedence template.",
+        "Current edge_jaccard_index versus the open mine-rs candidate is 1.0."
       ]
     },
     {
       "output": "prec-internal",
       "reference_status": "staged-local-open",
       "mine_rs_status": "reproduced-and-compared",
-      "comparable_status": "yes-with-gap",
+      "comparable_status": "yes",
       "notes": [
-        "build_block_precedence_graph(...) generates the current open candidate graph",
-        "The current open candidate uses one vertical predecessor plus four lateral predecessors one level above",
-        "The candidate reproduces all nodes but only 244742 of 650631 external edges"
+        "build_block_precedence_graph(...) generates the current open candidate graph.",
+        "The current candidate uses the verified 17-offset Marvin slope template (45°/8 niveles).",
+        "The candidate reproduces all 650631 external edges."
       ]
     },
     {
@@ -42,9 +42,9 @@
       "mine_rs_status": "normalized-and-compared",
       "comparable_status": "yes",
       "notes": [
-        "read_marvin_upit_solution(...) normalizes marvin_upit.sol into selected linear indices",
-        "marving-info.txt confirms field_4 as tonnage and field_7 as proc_profit for this comparison",
-        "Current membership jaccard versus the open mine-rs candidate is 0.6918310777759661"
+        "examples/marvin-benchmark/src/marvin_support.rs normalizes datasets/benchmarks/marvin/references/marvin_upit.sol into selected linear indices.",
+        "marving-info.txt confirms field_4 as tonnage and field_7 as proc_profit for this comparison.",
+        "Current membership jaccard versus the open mine-rs candidate is 0.6458364932504171."
       ]
     },
     {
@@ -53,50 +53,54 @@
       "mine_rs_status": "prototype-available-and-compared",
       "comparable_status": "yes-with-gap",
       "notes": [
-        "build_upit_prototype(...) now compares directly against marvin_upit.sol using the staged local reference",
-        "The current prototype selects 12236 blocks versus 8516 in the reference",
-        "The current prototype overstates tonnage by 222329511.765961 and understates total value by 10770.666083968448 in the current open workflow"
+        "build_upit_prototype(...) compares directly against the staged UPIT reference.",
+        "The current prototype selects 13186 blocks versus 8516 in the reference.",
+        "The current prototype undershoots total_economic_objective by 158269710.4946537 and overstates tonnage by 273486829.51394683.",
+        "An exact UPL backend already exists in the repo for smaller cases, but the current Edmonds-Karp implementation is not yet benchmark-scalable for Marvin-sized runs."
       ]
     },
     {
       "output": "cpit-external",
       "reference_status": "staged-local-open",
-      "mine_rs_status": "reference-artifact-only",
-      "comparable_status": "not-yet",
+      "mine_rs_status": "normalized-and-audited",
+      "comparable_status": "reference-only",
       "notes": [
-        "marvin.cpit and marvin_cpit_gmunoz120723.sol are staged locally",
-        "The repo still lacks a CPIT-normalized contract and an equivalent capacity-constrained pit solver/report to compare against"
+        "examples/marvin-benchmark/src/marvin_support.rs normalizes datasets/benchmarks/marvin/references/marvin.cpit and marvin_cpit_gmunoz120723.sol as open benchmark contracts.",
+        "The normalized discounted objective is 820726047.9529905, within 0.04700946807861328 of the published official target 820726048.",
+        "The reference solution uses 8516 blocks across 16 active periods and respects both staged capacity limits."
       ]
     },
     {
       "output": "pcpsp-external",
       "reference_status": "staged-local-open",
-      "mine_rs_status": "reference-artifact-only",
-      "comparable_status": "not-yet",
+      "mine_rs_status": "normalized-and-audited",
+      "comparable_status": "reference-only",
       "notes": [
-        "marvin.pcpsp and marvin_pcpsp_gmunoz120723.sol are staged locally",
-        "The repo still lacks a normalized PCPSP contract and a comparable destination-aware long-term scheduler"
+        "examples/marvin-benchmark/src/marvin_support.rs normalizes datasets/benchmarks/marvin/references/marvin.pcpsp and marvin_pcpsp_gmunoz120723.sol as open benchmark contracts.",
+        "The normalized discounted objective is 885968061.4911749, within 8.508825063705444 of the published official target 885968070.",
+        "The reference solution uses 8516 blocks across 14 active periods and 2 destinations; the process limit excess is only 0.06258626654744148 t (rounding noise scale)."
       ]
     },
     {
       "output": "lp-relaxations",
       "reference_status": "staged-local-open",
-      "mine_rs_status": "reference-artifact-only",
-      "comparable_status": "not-yet",
+      "mine_rs_status": "normalized-and-audited",
+      "comparable_status": "reference-only",
       "notes": [
-        "marvin.LPcpit and marvin.LPpcpsp are staged locally",
-        "The repo does not yet expose normalized LP relaxation contracts or relaxed benchmark comparators"
+        "datasets/benchmarks/marvin/references/marvin.LPcpit and marvin.LPpcpsp now normalize into fractional assignment contracts with reproducible objective audits.",
+        "The local discounted sums are 863915586.9532448 for LP-CPIT and 911699907.9443411 for LP-PCPSP.",
+        "Versus the published notebook values, the current staged files differ by 544.046755194664 (LP-CPIT) and 4757.055658936501 (LP-PCPSP), which is now explicit in the benchmark report."
       ]
     },
     {
       "output": "benchmark-comparison",
       "reference_status": "partial",
-      "mine_rs_status": "precedence-and-upit-comparison-available",
+      "mine_rs_status": "precedence-upit-and-reference-schedule-audit-available",
       "comparable_status": "partial",
       "notes": [
-        "cargo run -p marvin-benchmark emits a reproducible comparison report",
-        "datasets/benchmarks/marvin/outputs/comparison-report.json records precedence and upit membership/value/tonnage gaps",
-        "Full MR-133 completion still depends on normalizing and comparing CPIT, PCPSP and LP artifacts"
+        "cargo run -p marvin-benchmark emits a reproducible comparison report.",
+        "datasets/benchmarks/marvin/outputs/comparison-report.json now records precedence/upit gaps plus CPIT, PCPSP and LP reference audits.",
+        "Full schedule-to-reference parity still depends on implementing an internal mine-rs scheduler (MR-163/MR-164), and exact UPIT parity depends on a scalable UPL backend plus benchmark integration (MR-173/MR-174)."
       ]
     }
   ],
@@ -104,7 +108,12 @@
     {
       "kind": "local-info-file",
       "path": "datasets/benchmarks/marvin/marving-info.txt",
-      "note": "Confirms block size, precedence metadata, proc_profit semantics and official objective values for UPIT/CPIT/PCPSP."
+      "note": "Confirms block size, precedence metadata, proc_profit semantics and published objective values for UPIT/CPIT/PCPSP."
+    },
+    {
+      "kind": "local-benchmark-support",
+      "path": "examples/marvin-benchmark/src/marvin_support.rs",
+      "note": "Benchmark-specific normalization logic lives outside core src APIs and is reused by integration tests."
     },
     {
       "kind": "local-comparison-report",

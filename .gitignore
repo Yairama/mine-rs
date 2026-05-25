@@ -48,6 +48,26 @@ reports/generated/
 datasets/raw/
 datasets/tmp/
 
+# Heavy local datasets (use git add -f only for intentionally curated fixtures)
+datasets/**/*.blocks
+datasets/**/*.csv
+datasets/**/*.parquet
+datasets/**/*.feather
+datasets/**/*.arrow
+datasets/**/*.orc
+datasets/**/*.h5
+datasets/**/*.hdf5
+datasets/**/*.npy
+datasets/**/*.npz
+datasets/**/*.bin
+datasets/**/*.zip
+datasets/**/*.7z
+datasets/**/*.tar
+datasets/**/*.tar.gz
+datasets/**/*.tgz
+datasets/**/*.bz2
+datasets/**/*.xz
+datasets/*
 # Editors and OS files
 .vscode/
 .idea/

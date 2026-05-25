@@ -6,11 +6,15 @@
 //! Si no se especifican argumentos, el dataset se toma desde `datasets/benchmarks/marvin/marvin.blocks`
 //! y el reporte se escribe en `datasets/benchmarks/marvin/outputs/inspect-report.json`.
 
+#[path = "../../marvin-benchmark/src/benchmark_blocks_support.rs"]
+mod benchmark_blocks_support;
+
 use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use mine_sdk::{BlockModelValidationExt, ValidationOptions, read_marvin_blocks};
+use benchmark_blocks_support::read_benchmark_blocks;
+use mine_sdk::{BlockModelValidationExt, ValidationOptions};
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -40,7 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nth(2)
         .map(PathBuf::from)
         .unwrap_or_else(|| marvin_dir.join("outputs").join("inspect-report.json"));
-    let model = read_marvin_blocks(&dataset_path)?;
+    let model = read_benchmark_blocks(&dataset_path, "marvin")?;
     let validation =
         model.validate_with_options(&ValidationOptions::new().with_sparse_allowed(true));
     let output = MarvinInspectOutput {
