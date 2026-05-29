@@ -2,6 +2,7 @@
 
 mod benches;
 mod comparison;
+mod decomposed_scheduling;
 mod long_term_schedule;
 mod max_closure;
 mod phase_design;
@@ -24,6 +25,10 @@ pub use comparison::{
     NumericMetricTolerance, PrecedenceGraphComparisonReport, compare_block_memberships,
     compare_named_numeric_metrics, compare_precedence_graphs, compare_upit_reports,
 };
+pub use decomposed_scheduling::{
+    DecomposedSchedulingArtifacts, DecomposedSchedulingConfig, DecomposedTemporalSolver,
+    solve_decomposed_scheduling_problem,
+};
 pub use long_term_schedule::{
     LongTermSchedule, LongTermScheduleEntry, LongTermScheduleMaterialFlowReport,
     LongTermSchedulePeriodCapacity, LongTermSchedulePeriodFlow, LongTermScheduleStockpile,
@@ -38,12 +43,14 @@ pub use max_closure::{
 };
 pub use phase_design::{
     NestingAccessRules, PhaseDesign, PushbackPlan, derive_phase_design_from_nested_shells,
-    derive_pushbacks_from_nested_shells,
+    derive_phase_design_from_nested_shells_from_map, derive_pushbacks_from_nested_shells,
+    derive_pushbacks_from_nested_shells_from_map,
 };
 pub use phases::{PhaseAssignment, PhaseTaggingReport, assign_phases_from_column};
 pub use pit_shells::{
     PitShell, PitShellMetrics, PitShellSet, compute_pit_shell_metrics, generate_nested_shells,
-    generate_nested_shells_from_model, read_pit_shell_set_json, uniform_revenue_factors,
+    generate_nested_shells_from_model, generate_nested_shells_from_weight_map,
+    generate_nested_shells_from_weight_scenarios, read_pit_shell_set_json, uniform_revenue_factors,
     write_pit_shell_set_json,
 };
 pub use precedence::{
@@ -68,7 +75,9 @@ pub use slope_templates::{
 pub use small_scheduling::{
     SmallSchedulingAssignment, SmallSchedulingPeriodSummary, SmallSchedulingResourceUsage,
     SmallSchedulingSolution, build_ready_frontier_long_term_schedule,
-    build_ready_frontier_schedule, solve_small_scheduling_problem,
+    build_ready_frontier_schedule, build_target_period_seeded_long_term_schedule,
+    build_target_period_seeded_schedule, build_target_period_windowed_long_term_schedule,
+    build_target_period_windowed_schedule, solve_small_scheduling_problem,
 };
 pub use stockpile_policy::{
     LongTermStockpileDepositPolicy, LongTermStockpilePolicy, LongTermStockpileReclaimPolicy,

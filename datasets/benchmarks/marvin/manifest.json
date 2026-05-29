@@ -1,15 +1,20 @@
 {
   "dataset_family": "marvin",
+  "dataset_variant": "canonical",
   "status": "staged",
   "notes": [
     "This manifest inventories benchmark artifacts currently staged inside the repository.",
     "External benchmark references now live under datasets/benchmarks/marvin/references/ so outputs/ can remain reserved for generated artifacts.",
     "Column semantics beyond the axis-like integer ranges remain unverified and must be confirmed before schema-specific loaders are implemented.",
-    "The public Marvin page referenced during planning was not machine-verifiable at planning time because it responded behind a WAF, so this manifest only records artifacts observed locally."
+    "The public Marvin page referenced during planning was not machine-verifiable at planning time because it responded behind a WAF, so this manifest only records artifacts observed locally.",
+    "This dataset matches the canonical Marvin benchmark family used in MineLib-style literature; report variants should still document the exact scheduling pipeline before claiming paper comparability."
   ],
   "instances": [
     {
       "instance_id": "marvin-local",
+      "instance_variant": "canonical",
+      "literature_reference_instance": "marvin",
+      "same_literature_variant": true,
       "source": {
         "kind": "local-repository-artifact",
         "original_path": "datasets/benchmarks/marvin/marvin.blocks"

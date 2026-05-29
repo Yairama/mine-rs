@@ -160,6 +160,116 @@ pub fn read_marvin_upit_block_values(
     Ok(result)
 }
 
+/// Alias MineLib del tipo de problema de scheduling normalizado.
+#[allow(dead_code)]
+pub type MinelibScheduleProblemKind = MarvinScheduleProblemKind;
+
+/// Alias MineLib del contrato abierto de scheduling.
+#[allow(dead_code)]
+pub type MinelibScheduleProblem = MarvinScheduleProblem;
+
+/// Alias MineLib de una asignacion normalizada.
+#[allow(dead_code)]
+pub type MinelibScheduleAssignment = MarvinScheduleAssignment;
+
+/// Alias MineLib de una solucion normalizada.
+#[allow(dead_code)]
+pub type MinelibScheduleSolution = MarvinScheduleSolution;
+
+/// Alias MineLib del resumen auditado de una solucion.
+#[allow(dead_code)]
+pub type MinelibScheduleSolutionSummary = MarvinScheduleSolutionSummary;
+
+/// Lee una lista de precedencias MineLib y la normaliza a `PrecedenceGraph`.
+#[allow(dead_code)]
+pub fn read_minelib_precedence_graph(
+    path: impl AsRef<Path>,
+    model: &BlockModel,
+) -> Result<PrecedenceGraph, MineError> {
+    read_marvin_precedence_graph(path, model)
+}
+
+/// Lee una solucion UPIT MineLib y la normaliza como indices lineales seleccionados.
+#[allow(dead_code)]
+pub fn read_minelib_upit_solution(
+    path: impl AsRef<Path>,
+    model: &BlockModel,
+) -> Result<Vec<usize>, MineError> {
+    read_marvin_upit_solution(path, model)
+}
+
+/// Lee la tabla de valores objetivo UPIT MineLib por bloque.
+#[allow(dead_code)]
+pub fn read_minelib_upit_block_values(
+    path: impl AsRef<Path>,
+    model: &BlockModel,
+) -> Result<Vec<(usize, f64)>, MineError> {
+    read_marvin_upit_block_values(path, model)
+}
+
+/// Lee un problema CPIT MineLib y lo normaliza a contrato abierto.
+#[allow(dead_code)]
+pub fn read_minelib_cpit_problem(
+    path: impl AsRef<Path>,
+    model: &BlockModel,
+) -> Result<MinelibScheduleProblem, MineError> {
+    read_marvin_cpit_problem(path, model)
+}
+
+/// Lee un problema PCPSP MineLib y lo normaliza a contrato abierto.
+#[allow(dead_code)]
+pub fn read_minelib_pcpsp_problem(
+    path: impl AsRef<Path>,
+    model: &BlockModel,
+) -> Result<MinelibScheduleProblem, MineError> {
+    read_marvin_pcpsp_problem(path, model)
+}
+
+/// Lee una solucion CPIT MineLib y la normaliza a contrato abierto.
+#[allow(dead_code)]
+pub fn read_minelib_cpit_solution(
+    path: impl AsRef<Path>,
+    model: &BlockModel,
+) -> Result<MinelibScheduleSolution, MineError> {
+    read_marvin_cpit_solution(path, model)
+}
+
+/// Lee una solucion PCPSP MineLib y la normaliza a contrato abierto.
+#[allow(dead_code)]
+pub fn read_minelib_pcpsp_solution(
+    path: impl AsRef<Path>,
+    model: &BlockModel,
+) -> Result<MinelibScheduleSolution, MineError> {
+    read_marvin_pcpsp_solution(path, model)
+}
+
+/// Lee una solucion relajada LP CPIT MineLib.
+#[allow(dead_code)]
+pub fn read_minelib_lp_cpit_solution(
+    path: impl AsRef<Path>,
+    model: &BlockModel,
+) -> Result<MinelibScheduleSolution, MineError> {
+    read_marvin_lp_cpit_solution(path, model)
+}
+
+/// Lee una solucion relajada LP PCPSP MineLib.
+#[allow(dead_code)]
+pub fn read_minelib_lp_pcpsp_solution(
+    path: impl AsRef<Path>,
+    model: &BlockModel,
+) -> Result<MinelibScheduleSolution, MineError> {
+    read_marvin_lp_pcpsp_solution(path, model)
+}
+
+/// Resume una solucion MineLib normalizada con el mismo auditor usado en Marvin.
+#[allow(dead_code)]
+pub fn summarize_minelib_schedule_solution(
+    problem: &MinelibScheduleProblem,
+    solution: &MinelibScheduleSolution,
+) -> Result<MinelibScheduleSolutionSummary, MineError> {
+    summarize_marvin_schedule_solution(problem, solution)
+}
+
 /// Tipo de problema de scheduling Marvin normalizado.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MarvinScheduleProblemKind {
@@ -341,6 +451,7 @@ pub fn read_marvin_pcpsp_solution(
 }
 
 /// Lee `marvin.LPcpit` y lo normaliza como solución relajada CPIT.
+#[allow(dead_code)]
 pub fn read_marvin_lp_cpit_solution(
     path: impl AsRef<Path>,
     model: &BlockModel,
@@ -349,6 +460,7 @@ pub fn read_marvin_lp_cpit_solution(
 }
 
 /// Lee `marvin.LPpcpsp` y lo normaliza como solución relajada PCPSP.
+#[allow(dead_code)]
 pub fn read_marvin_lp_pcpsp_solution(
     path: impl AsRef<Path>,
     model: &BlockModel,

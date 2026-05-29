@@ -124,6 +124,102 @@ pub fn generate_nested_shells(
     precedence_graph: &PrecedenceGraph,
     factors: &[f64],
 ) -> Result<PitShellSet, MineError> {
+    let block_weights = block_weights
+        .iter()
+        .enumerate()
+        .map(|(linear_index, weight)| (linear_index, *weight))
+        .collect::<BTreeMap<_, _>>();
+    generate_nested_shells_from_weight_map(&block_weights, precedence_graph, factors)
+}
+
+/// Genera una familia anidada de pit shells a partir de pesos ya construidos por factor.
+///
+/// Esta ruta es la más general cuando el revenue factor no debe escalar
+/// uniformemente un valor neto, sino que cada escenario requiere recomputar los
+/// pesos del bloque (por ejemplo, escalando solo el componente de ingreso y no
+/// los costos fijos).
+pub fn generate_nested_shells_from_weight_scenarios(
+    weight_scenarios: &[(f64, BTreeMap<usize, f64>)],
+    precedence_graph: &PrecedenceGraph,
+) -> Result<PitShellSet, MineError> {
+    if weight_scenarios.is_empty() {
+        return Err(MineError::invalid_parameter(
+            "weight_scenarios",
+            "weight scenarios must not be empty",
+        ));
+    }
+
+    let reference_keys = weight_scenarios[0].1.keys().copied().collect::<Vec<_>>();
+    if reference_keys.is_empty() {
+        return Err(MineError::invalid_parameter(
+            "weight_scenarios",
+            "weight scenarios must contain at least one block weight",
+        ));
+    }
+
+    for (factor, block_weights) in weight_scenarios {
+        if !factor.is_finite() || *factor <= 0.0 {
+            return Err(MineError::invalid_parameter(
+                "weight_scenarios",
+                format!("scenario factor must be finite and greater than zero, got {factor}"),
+            ));
+        }
+        if block_weights.keys().copied().collect::<Vec<_>>() != reference_keys {
+            return Err(MineError::invalid_parameter(
+                "weight_scenarios",
+                "all weight scenarios must reference the same linear-index set",
+            ));
+        }
+        for (linear_index, weight) in block_weights {
+            if !weight.is_finite() {
+                return Err(MineError::invalid_parameter(
+                    "weight_scenarios",
+                    format!(
+                        "scenario factor {factor} contains a non-finite weight for linear index `{linear_index}`"
+                    ),
+                ));
+            }
+        }
+    }
+
+    let total_block_count = reference_keys.len();
+    let factors_evaluated = weight_scenarios.len();
+    let mut shells: Vec<PitShell> = Vec::with_capacity(weight_scenarios.len());
+    let mut seen_memberships: Vec<Vec<usize>> = Vec::new();
+    let mut sorted_scenarios = weight_scenarios.to_vec();
+    sorted_scenarios.sort_by(|left, right| left.0.partial_cmp(&right.0).unwrap());
+
+    for (factor, block_weights) in sorted_scenarios {
+        let closure_graph = build_max_closure_graph(&block_weights, precedence_graph)?;
+        let result = solve_upl_exact(&closure_graph)?;
+        let selected = result.selected_blocks.clone();
+        if seen_memberships.contains(&selected) {
+            continue;
+        }
+        seen_memberships.push(selected);
+        shells.push(PitShell::from_result(factor, result));
+    }
+
+    let unique_shell_count = shells.len();
+
+    Ok(PitShellSet {
+        shells,
+        total_block_count,
+        factors_evaluated,
+        unique_shell_count,
+    })
+}
+
+/// Genera una familia anidada de pit shells desde un mapa `linear_index -> weight`.
+///
+/// Esta variante preserva índices lineales sparse del modelo original, por lo que es
+/// la ruta correcta para block models materializados de forma sparse y benchmarks
+/// tipo MineLib.
+pub fn generate_nested_shells_from_weight_map(
+    block_weights: &BTreeMap<usize, f64>,
+    precedence_graph: &PrecedenceGraph,
+    factors: &[f64],
+) -> Result<PitShellSet, MineError> {
     if factors.is_empty() {
         return Err(MineError::invalid_parameter(
             "factors",
@@ -138,43 +234,34 @@ pub fn generate_nested_shells(
             ));
         }
     }
-
-    let total_block_count = block_weights.len();
-    let factors_evaluated = factors.len();
-    let mut shells: Vec<PitShell> = Vec::with_capacity(factors.len());
-    let mut seen_memberships: Vec<Vec<usize>> = Vec::new();
-
-    // Sort factors ascending so we process smallest pit first
-    let mut sorted_factors = factors.to_vec();
-    sorted_factors.sort_by(|a, b| a.partial_cmp(b).unwrap());
-
-    for &f in &sorted_factors {
-        let scaled_weights: BTreeMap<usize, f64> = block_weights
-            .iter()
-            .enumerate()
-            .map(|(i, &w)| (i, w * f))
-            .collect();
-        let closure_graph = build_max_closure_graph(&scaled_weights, precedence_graph)?;
-        let result = solve_upl_exact(&closure_graph)?;
-
-        let selected = result.selected_blocks.clone();
-
-        // Deduplicate: skip if exact same membership was already seen
-        if seen_memberships.contains(&selected) {
-            continue;
+    if block_weights.is_empty() {
+        return Err(MineError::invalid_parameter(
+            "block_weights",
+            "block weights must not be empty",
+        ));
+    }
+    for (linear_index, weight) in block_weights {
+        if !weight.is_finite() {
+            return Err(MineError::invalid_parameter(
+                "block_weights",
+                format!("block weight for linear index `{linear_index}` is not finite"),
+            ));
         }
-        seen_memberships.push(selected);
-        shells.push(PitShell::from_result(f, result));
     }
 
-    let unique_shell_count = shells.len();
-
-    Ok(PitShellSet {
-        shells,
-        total_block_count,
-        factors_evaluated,
-        unique_shell_count,
-    })
+    let weight_scenarios = factors
+        .iter()
+        .map(|factor| {
+            (
+                *factor,
+                block_weights
+                    .iter()
+                    .map(|(linear_index, weight)| (*linear_index, *weight * *factor))
+                    .collect::<BTreeMap<_, _>>(),
+            )
+        })
+        .collect::<Vec<_>>();
+    generate_nested_shells_from_weight_scenarios(&weight_scenarios, precedence_graph)
 }
 
 /// Genera shells anidados directamente desde un `BlockModel`.
@@ -199,11 +286,18 @@ pub fn generate_nested_shells_from_model(
         )));
     };
 
-    let block_weights: Vec<f64> = (0..model.block_count())
-        .map(|row_index| values.get(row_index).copied().unwrap_or(0.0))
-        .collect();
+    let mut block_weights = BTreeMap::new();
+    for row_index in 0..model.block_count() {
+        let linear_index = model.linear_index_at(row_index)?;
+        let weight = values.get(row_index).copied().ok_or_else(|| {
+            MineError::validation(format!(
+                "value column `{value_column}` is missing row `{row_index}`"
+            ))
+        })?;
+        block_weights.insert(linear_index, weight);
+    }
 
-    generate_nested_shells(&block_weights, precedence_graph, factors)
+    generate_nested_shells_from_weight_map(&block_weights, precedence_graph, factors)
 }
 
 /// Calcula métricas por shell para un `PitShellSet`.
@@ -408,6 +502,48 @@ mod tests {
         let err2 =
             generate_nested_shells(&weights, &graph, &[1.5]).expect_err("factor > 1 should fail");
         assert!(err2.to_string().contains("revenue factor"));
+    }
+
+    #[test]
+    fn sparse_weight_map_preserves_linear_indices() {
+        let graph = PrecedenceGraph::from_nodes_and_edges(
+            vec![PrecedenceNode::Block(2), PrecedenceNode::Block(5)],
+            vec![PrecedenceEdge::new(
+                PrecedenceNode::Block(2),
+                PrecedenceNode::Block(5),
+            )],
+        )
+        .expect("sparse graph should be valid");
+        let weights = BTreeMap::from([(2_usize, 10.0_f64), (5_usize, -1.0_f64)]);
+
+        let shells = generate_nested_shells_from_weight_map(&weights, &graph, &[1.0])
+            .expect("shells should generate for sparse weights");
+
+        assert_eq!(shells.shells.len(), 1);
+        assert_eq!(shells.shells[0].selected_blocks, vec![2]);
+    }
+
+    #[test]
+    fn weight_scenarios_allow_factor_specific_shells() {
+        let graph = chain_graph(2);
+        let scenarios = vec![
+            (
+                0.5,
+                BTreeMap::from([(0_usize, -1.0_f64), (1_usize, -1.0_f64)]),
+            ),
+            (
+                1.0,
+                BTreeMap::from([(0_usize, 5.0_f64), (1_usize, -1.0_f64)]),
+            ),
+        ];
+
+        let shells = generate_nested_shells_from_weight_scenarios(&scenarios, &graph)
+            .expect("scenario-driven shells should generate");
+
+        assert_eq!(shells.factors_evaluated, 2);
+        assert_eq!(shells.unique_shell_count, 2);
+        assert!(shells.shells[0].selected_blocks.is_empty());
+        assert_eq!(shells.shells[1].selected_blocks, vec![0]);
     }
 
     #[test]

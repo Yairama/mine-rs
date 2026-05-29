@@ -12,23 +12,25 @@ use mine_core::{
     ScenarioId,
 };
 use mine_planning::{
-    BenchAssignment, BenchParameters, BlockPrecedenceTemplate, LongTermSchedule,
-    LongTermScheduleEntry, LongTermSchedulePeriodCapacity, LongTermScheduleStockpile,
-    LongTermScheduleViolationCode, LongTermStockpileDepositPolicy, LongTermStockpilePolicy,
-    LongTermStockpileReclaimPolicy, NestingAccessRules, NumericMetricTolerance, PitShell,
-    PitShellSet, PrecedenceEdge, PrecedenceGraph, PrecedenceNode, PrecedenceOffset,
-    PushbackGenerationRules, PushbackPlan, ScheduleConstraints, ScheduleDestinationCapacity,
-    ScheduleDestinationId, ScheduleEntry, ScheduleStockpileCapacity, ScheduleStockpileId,
-    ScheduleViolationCode, SchedulingObjectiveTerm, SchedulingPeriod, SchedulingProblem,
-    SchedulingResourceBound, SchedulingResourceId, SchedulingResourceRequirement, SchedulingUnit,
-    SchedulingUnitId, SmallSchedulingSolution, apply_long_term_stockpile_policy, assign_benches,
-    assign_phases_from_column, build_aggregated_long_term_schedule, build_block_precedence_graph,
-    build_pushback_prototype, build_ready_frontier_long_term_schedule,
-    build_ready_frontier_schedule, build_schedule, build_upit_prototype, compare_block_memberships,
-    compare_named_numeric_metrics, compare_precedence_graphs, compare_upit_reports,
-    derive_phase_design_from_nested_shells, evaluate_long_term_schedule_material_flows,
-    read_pit_shell_set_json, read_precedence_graph_json, solve_small_scheduling_problem,
-    write_pit_shell_set_json, write_precedence_graph_json,
+    BenchAssignment, BenchParameters, BlockPrecedenceTemplate, DecomposedSchedulingConfig,
+    DecomposedTemporalSolver, LongTermSchedule, LongTermScheduleEntry,
+    LongTermSchedulePeriodCapacity, LongTermScheduleStockpile, LongTermScheduleViolationCode,
+    LongTermStockpileDepositPolicy, LongTermStockpilePolicy, LongTermStockpileReclaimPolicy,
+    NestingAccessRules, NumericMetricTolerance, PitShell, PitShellSet, PrecedenceEdge,
+    PrecedenceGraph, PrecedenceNode, PrecedenceOffset, PushbackGenerationRules, PushbackPlan,
+    ScheduleConstraints, ScheduleDestinationCapacity, ScheduleDestinationId, ScheduleEntry,
+    ScheduleStockpileCapacity, ScheduleStockpileId, ScheduleViolationCode, SchedulingObjectiveTerm,
+    SchedulingPeriod, SchedulingProblem, SchedulingResourceBound, SchedulingResourceId,
+    SchedulingResourceRequirement, SchedulingUnit, SchedulingUnitId, SmallSchedulingSolution,
+    apply_long_term_stockpile_policy, assign_benches, assign_phases_from_column,
+    build_aggregated_long_term_schedule, build_block_precedence_graph, build_pushback_prototype,
+    build_ready_frontier_long_term_schedule, build_ready_frontier_schedule, build_schedule,
+    build_target_period_seeded_schedule, build_target_period_windowed_schedule,
+    build_upit_prototype, compare_block_memberships, compare_named_numeric_metrics,
+    compare_precedence_graphs, compare_upit_reports, derive_phase_design_from_nested_shells,
+    evaluate_long_term_schedule_material_flows, read_pit_shell_set_json,
+    read_precedence_graph_json, solve_decomposed_scheduling_problem,
+    solve_small_scheduling_problem, write_pit_shell_set_json, write_precedence_graph_json,
 };
 
 #[test]
@@ -867,6 +869,203 @@ fn build_ready_frontier_schedule_respects_destination_capacity_in_period() {
 }
 
 #[test]
+fn build_target_period_seeded_schedule_prioritizes_lp_target_proximity() {
+    let mine_resource =
+        SchedulingResourceId::new("mine_tonnage").expect("resource should be valid");
+    let unit_a_id = SchedulingUnitId::new("phase-a").expect("unit id should be valid");
+    let unit_b_id = SchedulingUnitId::new("phase-b").expect("unit id should be valid");
+    let problem = SchedulingProblem::new(
+        ScenarioId::new("seeded-frontier").expect("scenario should be valid"),
+        ModelId::new("seeded-frontier-model").expect("model should be valid"),
+        vec![
+            SchedulingPeriod::new(
+                "P1",
+                vec![
+                    SchedulingResourceBound::new(mine_resource.clone(), None, Some(1.0))
+                        .expect("mine bound should be valid"),
+                ],
+                vec![],
+                vec![],
+            )
+            .expect("period should be valid"),
+            SchedulingPeriod::new(
+                "P2",
+                vec![
+                    SchedulingResourceBound::new(mine_resource.clone(), None, Some(1.0))
+                        .expect("mine bound should be valid"),
+                ],
+                vec![],
+                vec![],
+            )
+            .expect("period should be valid"),
+        ],
+        vec![
+            SchedulingUnit::new(
+                unit_a_id.clone(),
+                1.0,
+                1,
+                vec![],
+                vec![],
+                vec![],
+                vec![0],
+                Some(110),
+                Some(0),
+                Metadata::new(),
+            )
+            .expect("unit a should be valid"),
+            SchedulingUnit::new(
+                unit_b_id.clone(),
+                1.0,
+                1,
+                vec![],
+                vec![],
+                vec![],
+                vec![1],
+                Some(105),
+                Some(0),
+                Metadata::new(),
+            )
+            .expect("unit b should be valid"),
+        ],
+        vec![
+            SchedulingObjectiveTerm::new(unit_a_id.clone(), None, 9.0)
+                .expect("objective term should be valid"),
+            SchedulingObjectiveTerm::new(unit_b_id.clone(), None, 10.0)
+                .expect("objective term should be valid"),
+        ],
+        vec![
+            SchedulingResourceRequirement::new(unit_a_id.clone(), mine_resource.clone(), None, 1.0)
+                .expect("resource requirement should be valid"),
+            SchedulingResourceRequirement::new(unit_b_id.clone(), mine_resource, None, 1.0)
+                .expect("resource requirement should be valid"),
+        ],
+        vec![],
+        vec![],
+        0.0,
+        Metadata::new(),
+        vec![],
+    )
+    .expect("problem should be valid");
+
+    let solution = build_target_period_seeded_schedule(
+        &problem,
+        &BTreeMap::from([(unit_a_id.clone(), 0usize), (unit_b_id.clone(), 1usize)]),
+    )
+    .expect("seeded heuristic should build");
+
+    assert_eq!(solution.assignments().len(), 2);
+    assert_eq!(solution.assignments()[0].unit_id(), &unit_a_id);
+    assert_eq!(solution.assignments()[0].period_label(), "P1");
+    assert_eq!(solution.assignments()[1].unit_id(), &unit_b_id);
+    assert_eq!(solution.assignments()[1].period_label(), "P2");
+}
+
+#[test]
+fn build_target_period_windowed_schedule_beats_greedy_pack_under_capacity() {
+    let mine_resource =
+        SchedulingResourceId::new("mine_tonnage").expect("resource should be valid");
+    let unit_a_id = SchedulingUnitId::new("unit-a").expect("unit id should be valid");
+    let unit_b_id = SchedulingUnitId::new("unit-b").expect("unit id should be valid");
+    let unit_c_id = SchedulingUnitId::new("unit-c").expect("unit id should be valid");
+    let problem = SchedulingProblem::new(
+        ScenarioId::new("windowed-pack").expect("scenario should be valid"),
+        ModelId::new("windowed-pack-model").expect("model should be valid"),
+        vec![
+            SchedulingPeriod::new(
+                "P1",
+                vec![
+                    SchedulingResourceBound::new(mine_resource.clone(), None, Some(10.0))
+                        .expect("mine bound should be valid"),
+                ],
+                vec![],
+                vec![],
+            )
+            .expect("period should be valid"),
+        ],
+        vec![
+            SchedulingUnit::new(
+                unit_a_id.clone(),
+                6.0,
+                1,
+                vec![],
+                vec![],
+                vec![],
+                vec![0],
+                None,
+                None,
+                Metadata::new(),
+            )
+            .expect("unit a should be valid"),
+            SchedulingUnit::new(
+                unit_b_id.clone(),
+                5.0,
+                1,
+                vec![],
+                vec![],
+                vec![],
+                vec![1],
+                None,
+                None,
+                Metadata::new(),
+            )
+            .expect("unit b should be valid"),
+            SchedulingUnit::new(
+                unit_c_id.clone(),
+                5.0,
+                1,
+                vec![],
+                vec![],
+                vec![],
+                vec![2],
+                None,
+                None,
+                Metadata::new(),
+            )
+            .expect("unit c should be valid"),
+        ],
+        vec![
+            SchedulingObjectiveTerm::new(unit_a_id.clone(), None, 66.0)
+                .expect("objective term should be valid"),
+            SchedulingObjectiveTerm::new(unit_b_id.clone(), None, 55.0)
+                .expect("objective term should be valid"),
+            SchedulingObjectiveTerm::new(unit_c_id.clone(), None, 54.0)
+                .expect("objective term should be valid"),
+        ],
+        vec![
+            SchedulingResourceRequirement::new(unit_a_id.clone(), mine_resource.clone(), None, 6.0)
+                .expect("resource requirement should be valid"),
+            SchedulingResourceRequirement::new(unit_b_id.clone(), mine_resource.clone(), None, 5.0)
+                .expect("resource requirement should be valid"),
+            SchedulingResourceRequirement::new(unit_c_id.clone(), mine_resource, None, 5.0)
+                .expect("resource requirement should be valid"),
+        ],
+        vec![],
+        vec![],
+        0.0,
+        Metadata::new(),
+        vec![],
+    )
+    .expect("problem should be valid");
+
+    let greedy = build_ready_frontier_schedule(&problem).expect("greedy heuristic should build");
+    let windowed = build_target_period_windowed_schedule(
+        &problem,
+        &BTreeMap::from([
+            (unit_a_id.clone(), 0usize),
+            (unit_b_id.clone(), 0usize),
+            (unit_c_id.clone(), 0usize),
+        ]),
+        3,
+    )
+    .expect("windowed heuristic should build");
+
+    assert_eq!(greedy.assignments().len(), 1);
+    assert_eq!(greedy.assignments()[0].unit_id(), &unit_a_id);
+    assert_eq!(windowed.assignments().len(), 2);
+    assert_eq!(windowed.total_objective_value(), 109.0);
+}
+
+#[test]
 fn build_ready_frontier_long_term_schedule_routes_destinations_during_construction() {
     let mine_resource =
         SchedulingResourceId::new("mine_tonnage").expect("resource should be valid");
@@ -1166,6 +1365,138 @@ fn apply_long_term_stockpile_policy_diverts_and_reclaims_material() {
     assert_eq!(flow_report.stockpile_balances.len(), 2);
     assert_eq!(flow_report.stockpile_balances[0].closing_tonnage, 40.0);
     assert_eq!(flow_report.stockpile_balances[1].closing_tonnage, 0.0);
+}
+
+#[test]
+fn solve_decomposed_scheduling_problem_returns_candidate_bound_and_stockpile_adjusted_schedule() {
+    let mine_resource =
+        SchedulingResourceId::new("mine_tonnage").expect("resource should be valid");
+    let mill = ScheduleDestinationId::new("mill").expect("destination should be valid");
+    let stockpile_id = ScheduleStockpileId::new("sp-main").expect("stockpile should be valid");
+    let unit_a_id = SchedulingUnitId::new("phase-a").expect("unit id should be valid");
+    let unit_b_id = SchedulingUnitId::new("phase-b").expect("unit id should be valid");
+    let problem = SchedulingProblem::new(
+        ScenarioId::new("decomposed-problem").expect("scenario should be valid"),
+        ModelId::new("decomposed-model").expect("model should be valid"),
+        vec![
+            SchedulingPeriod::new(
+                "P1",
+                vec![
+                    SchedulingResourceBound::new(mine_resource.clone(), None, Some(100.0))
+                        .expect("mine bound should be valid"),
+                ],
+                vec![
+                    ScheduleDestinationCapacity::new(mill.clone(), Some(100.0))
+                        .expect("destination capacity should be valid"),
+                ],
+                vec![
+                    ScheduleStockpileCapacity::new(stockpile_id.clone(), Some(50.0), None)
+                        .expect("stockpile capacity should be valid"),
+                ],
+            )
+            .expect("period should be valid"),
+            SchedulingPeriod::new(
+                "P2",
+                vec![
+                    SchedulingResourceBound::new(mine_resource, None, Some(120.0))
+                        .expect("mine bound should be valid"),
+                ],
+                vec![
+                    ScheduleDestinationCapacity::new(mill.clone(), Some(120.0))
+                        .expect("destination capacity should be valid"),
+                ],
+                vec![
+                    ScheduleStockpileCapacity::new(stockpile_id.clone(), Some(50.0), Some(50.0))
+                        .expect("stockpile capacity should be valid"),
+                ],
+            )
+            .expect("period should be valid"),
+        ],
+        vec![
+            SchedulingUnit::new(
+                unit_a_id.clone(),
+                100.0,
+                10,
+                vec![],
+                vec![mill.clone()],
+                vec![stockpile_id.clone()],
+                vec![0, 1, 2],
+                Some(110),
+                Some(0),
+                Metadata::new(),
+            )
+            .expect("unit a should be valid"),
+            SchedulingUnit::new(
+                unit_b_id.clone(),
+                80.0,
+                8,
+                vec![unit_a_id.clone()],
+                vec![mill.clone()],
+                vec![],
+                vec![3, 4],
+                Some(105),
+                Some(0),
+                Metadata::new(),
+            )
+            .expect("unit b should be valid"),
+        ],
+        vec![
+            SchedulingObjectiveTerm::new(unit_a_id.clone(), Some(mill.clone()), 120.0)
+                .expect("objective term should be valid"),
+            SchedulingObjectiveTerm::new(unit_b_id.clone(), Some(mill.clone()), 80.0)
+                .expect("objective term should be valid"),
+        ],
+        vec![],
+        vec![mill.clone()],
+        vec![
+            LongTermScheduleStockpile::new(stockpile_id.clone(), 0.0, Metadata::new())
+                .expect("stockpile should be valid"),
+        ],
+        0.0,
+        Metadata::new(),
+        vec![],
+    )
+    .expect("problem should be valid");
+    let stockpile_policy = LongTermStockpilePolicy::new(
+        vec![
+            LongTermStockpileDepositPolicy::new("P1", mill.clone(), stockpile_id.clone(), 40.0)
+                .expect("deposit policy should be valid"),
+        ],
+        vec![
+            LongTermStockpileReclaimPolicy::new("P2", stockpile_id.clone(), mill.clone(), 40.0)
+                .expect("reclaim policy should be valid"),
+        ],
+    )
+    .expect("stockpile policy should be valid");
+    let config = DecomposedSchedulingConfig::ready_frontier()
+        .with_reference_bound_solver(Some(DecomposedTemporalSolver::SmallExact))
+        .with_stockpile_policy(Some(stockpile_policy));
+
+    let artifacts = solve_decomposed_scheduling_problem(&problem, &config, Metadata::new())
+        .expect("decomposed schedule should solve");
+    let flow_report = evaluate_long_term_schedule_material_flows(artifacts.final_schedule())
+        .expect("material flow report should build");
+    let reference_bound = artifacts
+        .reference_bound()
+        .expect("reference bound should be present");
+
+    assert_eq!(artifacts.temporal_candidate().assignments().len(), 2);
+    assert_eq!(artifacts.routed_schedule().entries().len(), 2);
+    assert_eq!(artifacts.final_schedule().entries().len(), 4);
+    assert!(
+        reference_bound.total_discounted_objective_value()
+            >= artifacts
+                .temporal_candidate()
+                .total_discounted_objective_value()
+    );
+    assert_eq!(
+        flow_report
+            .period_flows
+            .iter()
+            .find(|period| period.period_label == "P2")
+            .and_then(|period| period.stockpile_reclaims.get("sp-main").map(|value| *value)),
+        Some(40.0)
+    );
 }
 
 #[test]

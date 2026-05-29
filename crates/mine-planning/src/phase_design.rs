@@ -128,6 +128,29 @@ pub fn derive_pushbacks_from_nested_shells(
     tonnage_per_block: Option<&[f64]>,
     nesting_rules: NestingAccessRules,
 ) -> Result<PushbackPlan, MineError> {
+    let tonnage_by_linear_index = tonnage_per_block.map(|tonnage_per_block| {
+        tonnage_per_block
+            .iter()
+            .enumerate()
+            .map(|(linear_index, tonnage)| (linear_index, *tonnage))
+            .collect::<BTreeMap<_, _>>()
+    });
+    derive_pushbacks_from_nested_shells_from_map(
+        shell_set,
+        tonnage_by_linear_index.as_ref(),
+        nesting_rules,
+    )
+}
+
+/// Variante sparse-safe de `derive_pushbacks_from_nested_shells`.
+///
+/// Usa un mapa `linear_index -> tonnage`, adecuado para block models sparse donde
+/// los índices lineales materializados no son necesariamente `0..N`.
+pub fn derive_pushbacks_from_nested_shells_from_map(
+    shell_set: &PitShellSet,
+    tonnage_per_block: Option<&BTreeMap<usize, f64>>,
+    nesting_rules: NestingAccessRules,
+) -> Result<PushbackPlan, MineError> {
     if shell_set.shells.is_empty() {
         return Err(MineError::invalid_parameter(
             "shell_set",
@@ -150,7 +173,7 @@ pub fn derive_pushbacks_from_nested_shells(
         let tonnage: Option<f64> = tonnage_per_block.map(|t| {
             incremental
                 .iter()
-                .filter_map(|&li| t.get(li).copied())
+                .filter_map(|li| t.get(li).copied())
                 .sum::<f64>()
         });
 
@@ -208,13 +231,40 @@ pub fn derive_pushbacks_from_nested_shells(
 /// Reglas de esta primera ruta:
 /// - cada shell incremental se subdivide por bench;
 /// - las precedencias intra-shell entre benches se infieren desde `precedence_graph`;
-/// - entre shells consecutivos se usa una secuencia conservadora: todo phase del shell `k`
-///   depende de las fases del shell `k-1`.
+/// - entre shells consecutivos, las precedencias siguen `nesting_rules`: por defecto se
+///   alinean por bench y pueden reforzarse hasta una secuencia shell-a-shell completa.
 pub fn derive_phase_design_from_nested_shells(
     shell_set: &PitShellSet,
     bench_assignments: &[BenchAssignment],
     precedence_graph: &PrecedenceGraph,
     tonnage_per_block: Option<&[f64]>,
+    nesting_rules: NestingAccessRules,
+) -> Result<PushbackPlan, MineError> {
+    let tonnage_by_linear_index = tonnage_per_block.map(|tonnage_per_block| {
+        tonnage_per_block
+            .iter()
+            .enumerate()
+            .map(|(linear_index, tonnage)| (linear_index, *tonnage))
+            .collect::<BTreeMap<_, _>>()
+    });
+    derive_phase_design_from_nested_shells_from_map(
+        shell_set,
+        bench_assignments,
+        precedence_graph,
+        tonnage_by_linear_index.as_ref(),
+        nesting_rules,
+    )
+}
+
+/// Variante sparse-safe de `derive_phase_design_from_nested_shells`.
+///
+/// Usa un mapa `linear_index -> tonnage`, adecuado para block models sparse y
+/// benchmarks abiertos donde el layout materializado conserva huecos de grilla.
+pub fn derive_phase_design_from_nested_shells_from_map(
+    shell_set: &PitShellSet,
+    bench_assignments: &[BenchAssignment],
+    precedence_graph: &PrecedenceGraph,
+    tonnage_per_block: Option<&BTreeMap<usize, f64>>,
     nesting_rules: NestingAccessRules,
 ) -> Result<PushbackPlan, MineError> {
     if shell_set.shells.is_empty() {
@@ -229,7 +279,7 @@ pub fn derive_phase_design_from_nested_shells(
     let mut prev_shell_blocks = BTreeSet::new();
     let mut total_tonnage_acc = 0.0_f64;
     let mut total_block_count = 0usize;
-    let mut previous_shell_phase_ids = Vec::<String>::new();
+    let mut previous_shell_phase_ids_by_bench = BTreeMap::<i64, String>::new();
 
     for (shell_idx, shell) in shell_set.shells.iter().enumerate() {
         let current_blocks = shell
@@ -252,7 +302,7 @@ pub fn derive_phase_design_from_nested_shells(
             let total_tonnage = tonnage_per_block.map(|tonnes| {
                 block_indices
                     .iter()
-                    .filter_map(|&linear_index| tonnes.get(linear_index).copied())
+                    .filter_map(|linear_index| tonnes.get(linear_index).copied())
                     .sum::<f64>()
             });
             if let Some(total_tonnage) = total_tonnage {
@@ -292,7 +342,11 @@ pub fn derive_phase_design_from_nested_shells(
                 .expect("phase id must exist for every bench");
             let mut predecessor_phase_ids = BTreeSet::<String>::new();
 
-            predecessor_phase_ids.extend(previous_shell_phase_ids.iter().cloned());
+            predecessor_phase_ids.extend(build_cross_shell_predecessors(
+                &previous_shell_phase_ids_by_bench,
+                *bench,
+                &nesting_rules,
+            ));
 
             if let Some(inferred) = intra_shell_predecessors.get(phase_id) {
                 predecessor_phase_ids.extend(inferred.iter().cloned());
@@ -309,15 +363,7 @@ pub fn derive_phase_design_from_nested_shells(
             }
         }
 
-        previous_shell_phase_ids = ordered_benches
-            .iter()
-            .map(|bench| {
-                phase_ids_by_bench
-                    .get(bench)
-                    .expect("phase id must exist for every bench")
-                    .clone()
-            })
-            .collect();
+        previous_shell_phase_ids_by_bench = phase_ids_by_bench.clone();
         prev_shell_blocks = current_blocks;
     }
 
@@ -336,7 +382,7 @@ pub fn derive_phase_design_from_nested_shells(
         nesting_rules,
         limitations: vec![
             "Each shell increment is split by bench; no geometric sub-phasing inside a bench is attempted.".to_owned(),
-            "Cross-shell sequencing is conservative: every phase in shell k depends on the phases derived from shell k-1.".to_owned(),
+            "Cross-shell sequencing follows bench-aligned nesting access rules; strict sequential mode still serializes shell k behind every phase in shell k-1.".to_owned(),
             "Bench continuity is inferred from explicit block precedence when available; otherwise the design falls back to descending bench order within the same shell.".to_owned(),
         ],
     })
@@ -420,6 +466,29 @@ fn build_intra_shell_predecessors(
     }
 
     predecessors
+}
+
+fn build_cross_shell_predecessors(
+    previous_shell_phase_ids_by_bench: &BTreeMap<i64, String>,
+    current_bench: i64,
+    nesting_rules: &NestingAccessRules,
+) -> BTreeSet<String> {
+    if previous_shell_phase_ids_by_bench.is_empty() {
+        return BTreeSet::new();
+    }
+
+    if nesting_rules.require_complete_outer_before_inner {
+        return previous_shell_phase_ids_by_bench
+            .values()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+    }
+
+    let minimum_predecessor_bench = current_bench + nesting_rules.min_bench_lag.unwrap_or_default();
+    previous_shell_phase_ids_by_bench
+        .range(minimum_predecessor_bench..)
+        .map(|(_, phase_id)| phase_id.clone())
+        .collect()
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -506,6 +575,46 @@ mod tests {
     }
 
     #[test]
+    fn sparse_tonnage_map_accumulates_correctly() {
+        let shell_set = PitShellSet {
+            shells: vec![
+                PitShell {
+                    revenue_factor: 0.5,
+                    selected_blocks: vec![10, 20],
+                    pit_value: 5.0,
+                    block_count: 2,
+                },
+                PitShell {
+                    revenue_factor: 1.0,
+                    selected_blocks: vec![10, 20, 30, 40],
+                    pit_value: 8.0,
+                    block_count: 4,
+                },
+            ],
+            total_block_count: 4,
+            factors_evaluated: 2,
+            unique_shell_count: 2,
+        };
+        let tonnes = BTreeMap::from([
+            (10_usize, 100.0_f64),
+            (20_usize, 200.0_f64),
+            (30_usize, 150.0_f64),
+            (40_usize, 300.0_f64),
+        ]);
+
+        let plan = derive_pushbacks_from_nested_shells_from_map(
+            &shell_set,
+            Some(&tonnes),
+            NestingAccessRules::default(),
+        )
+        .expect("sparse derivation should succeed");
+
+        assert!((plan.phases[0].total_tonnage.unwrap() - 300.0).abs() < 1e-9);
+        assert!((plan.phases[1].total_tonnage.unwrap() - 450.0).abs() < 1e-9);
+        assert!((plan.total_tonnage.unwrap() - 750.0).abs() < 1e-9);
+    }
+
+    #[test]
     fn empty_shell_set_returns_error() {
         let empty = PitShellSet {
             shells: vec![],
@@ -533,6 +642,119 @@ mod tests {
         let json = serde_json::to_string(&plan).expect("plan should serialize");
         assert!(json.contains("phase-00"));
         assert!(json.contains("require_complete_outer_before_inner"));
+    }
+
+    #[test]
+    fn default_open_cross_shell_access_is_bench_aligned() {
+        let shell_set = make_shell_set_two_shells();
+        let bench_assignments = vec![
+            BenchAssignment {
+                linear_index: 0,
+                bench: 2,
+                center_elevation: 2.0,
+            },
+            BenchAssignment {
+                linear_index: 1,
+                bench: 1,
+                center_elevation: 1.0,
+            },
+            BenchAssignment {
+                linear_index: 2,
+                bench: 2,
+                center_elevation: 2.0,
+            },
+            BenchAssignment {
+                linear_index: 3,
+                bench: 1,
+                center_elevation: 1.0,
+            },
+        ];
+        let precedence_graph = PrecedenceGraph::new(vec![]).expect("empty graph should be valid");
+
+        let plan = derive_phase_design_from_nested_shells(
+            &shell_set,
+            &bench_assignments,
+            &precedence_graph,
+            None,
+            NestingAccessRules::default_open(),
+        )
+        .expect("phase plan should derive");
+
+        let outer_upper = plan
+            .phases
+            .iter()
+            .find(|phase| phase.phase_id == "phase-s01-b2")
+            .expect("outer upper bench phase should exist");
+        assert_eq!(outer_upper.predecessor_phase_ids, vec!["phase-s00-b2"]);
+
+        let outer_lower = plan
+            .phases
+            .iter()
+            .find(|phase| phase.phase_id == "phase-s01-b1")
+            .expect("outer lower bench phase should exist");
+        assert_eq!(
+            outer_lower.predecessor_phase_ids,
+            vec!["phase-s00-b1", "phase-s00-b2", "phase-s01-b2"]
+        );
+    }
+
+    #[test]
+    fn cross_shell_access_respects_bench_lag() {
+        let shell_set = make_shell_set_two_shells();
+        let bench_assignments = vec![
+            BenchAssignment {
+                linear_index: 0,
+                bench: 2,
+                center_elevation: 2.0,
+            },
+            BenchAssignment {
+                linear_index: 1,
+                bench: 1,
+                center_elevation: 1.0,
+            },
+            BenchAssignment {
+                linear_index: 2,
+                bench: 2,
+                center_elevation: 2.0,
+            },
+            BenchAssignment {
+                linear_index: 3,
+                bench: 1,
+                center_elevation: 1.0,
+            },
+        ];
+        let precedence_graph = PrecedenceGraph::new(vec![]).expect("empty graph should be valid");
+        let lagged_rules = NestingAccessRules {
+            min_bench_lag: Some(1),
+            require_complete_outer_before_inner: false,
+            simultaneous_access: true,
+        };
+
+        let plan = derive_phase_design_from_nested_shells(
+            &shell_set,
+            &bench_assignments,
+            &precedence_graph,
+            None,
+            lagged_rules,
+        )
+        .expect("phase plan should derive");
+
+        let outer_upper = plan
+            .phases
+            .iter()
+            .find(|phase| phase.phase_id == "phase-s01-b2")
+            .expect("outer upper bench phase should exist");
+        assert!(outer_upper.predecessor_phase_ids.is_empty());
+
+        let outer_lower = plan
+            .phases
+            .iter()
+            .find(|phase| phase.phase_id == "phase-s01-b1")
+            .expect("outer lower bench phase should exist");
+        assert_eq!(
+            outer_lower.predecessor_phase_ids,
+            vec!["phase-s00-b2", "phase-s01-b2"]
+        );
     }
 }
 

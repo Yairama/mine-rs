@@ -48,6 +48,25 @@ fn load_staged_marvin_blocks_as_sparse_model() {
 }
 
 #[test]
+fn load_staged_mclaughlin_limit_blocks_as_sparse_model() {
+    let model = read_benchmark_blocks(
+        benchmark_blocks_path("mclaughlin-limit", "mclaughlin_limit.blocks"),
+        "mclaughlin-limit",
+    )
+    .expect("mclaughlin_limit.blocks should load");
+
+    assert!(model.is_sparse());
+    assert_eq!(model.block_count(), 112_687);
+    assert_eq!(
+        model
+            .metadata()
+            .get("benchmark_family")
+            .expect("metadata should contain benchmark family"),
+        &MetadataValue::Text("mclaughlin-limit".to_owned())
+    );
+}
+
+#[test]
 #[ignore = "heavy benchmark fixture"]
 fn load_staged_mclaughlin_blocks_as_sparse_model() {
     let model = read_benchmark_blocks(

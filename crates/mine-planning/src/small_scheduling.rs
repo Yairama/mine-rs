@@ -331,6 +331,7 @@ pub fn build_ready_frontier_schedule(
                         requirements: option.requirements,
                         objective_value: option.objective_value,
                         discounted_objective_value,
+                        priority_distance: 0,
                         score: discounted_objective_value / load,
                     };
                     let replace = best_candidate.as_ref().is_none_or(|best| {
@@ -394,6 +395,305 @@ pub fn build_ready_frontier_schedule(
     ))
 }
 
+/// Construye un schedule heurístico seeded por un periodo objetivo por unidad.
+///
+/// Esta variante sigue la misma factibilidad que `build_ready_frontier_schedule`,
+/// pero dentro de cada frontera lista prioriza primero la cercanía al periodo
+/// objetivo provisto por `target_period_by_unit` y recién después el score
+/// económico descontado por carga.
+pub fn build_target_period_seeded_schedule(
+    problem: &SchedulingProblem,
+    target_period_by_unit: &BTreeMap<SchedulingUnitId, usize>,
+) -> Result<SmallSchedulingSolution, MineError> {
+    let period_resource_limits = problem
+        .periods()
+        .iter()
+        .map(|period| {
+            period
+                .resource_bounds()
+                .iter()
+                .map(|bound| {
+                    (
+                        bound.resource_id().clone(),
+                        (bound.min_total(), bound.max_total()),
+                    )
+                })
+                .collect::<BTreeMap<_, _>>()
+        })
+        .collect::<Vec<_>>();
+    let objective_by_unit = index_objective_terms(problem.objective_terms());
+    let requirements_by_unit = index_resource_requirements(problem.resource_requirements());
+    let mut usage_by_period =
+        vec![BTreeMap::<SchedulingResourceId, f64>::new(); problem.periods().len()];
+    let mut scheduled_period_by_unit = BTreeMap::<SchedulingUnitId, usize>::new();
+    let mut assignments = Vec::<SmallSchedulingAssignment>::new();
+    let mut total_objective_value = 0.0;
+    let mut total_discounted_objective_value = 0.0;
+
+    for period_index in 0..problem.periods().len() {
+        loop {
+            let mut best_candidate = None::<FrontierCandidate>;
+            for unit in problem
+                .units()
+                .iter()
+                .filter(|unit| !scheduled_period_by_unit.contains_key(unit.unit_id()))
+                .filter(|unit| {
+                    unit.predecessor_unit_ids()
+                        .iter()
+                        .all(|predecessor| scheduled_period_by_unit.contains_key(predecessor))
+                })
+            {
+                for option in build_unit_options(unit, &objective_by_unit, &requirements_by_unit) {
+                    if !fits_upper_bounds(
+                        period_index,
+                        &option.requirements,
+                        &usage_by_period,
+                        &period_resource_limits,
+                    ) {
+                        continue;
+                    }
+
+                    let discounted_objective_value = option.objective_value
+                        / (1.0 + problem.discount_rate()).powi(period_index as i32);
+                    let load = option
+                        .requirements
+                        .iter()
+                        .map(|(_, amount)| *amount)
+                        .sum::<f64>()
+                        .max(unit.tonnage())
+                        .max(1.0e-9);
+                    let target_period_index = target_period_by_unit
+                        .get(unit.unit_id())
+                        .copied()
+                        .unwrap_or(period_index);
+                    let candidate = FrontierCandidate {
+                        unit_id: unit.unit_id().clone(),
+                        period_index,
+                        destination_id: option.destination_id,
+                        requirements: option.requirements,
+                        objective_value: option.objective_value,
+                        discounted_objective_value,
+                        priority_distance: period_index.abs_diff(target_period_index),
+                        score: discounted_objective_value / load,
+                    };
+                    let replace = best_candidate.as_ref().is_none_or(|best| {
+                        candidate.priority_distance < best.priority_distance
+                            || (candidate.priority_distance == best.priority_distance
+                                && (candidate.score > best.score
+                                    || (candidate.score == best.score
+                                        && (candidate.discounted_objective_value
+                                            > best.discounted_objective_value
+                                            || (candidate.discounted_objective_value
+                                                == best.discounted_objective_value
+                                                && candidate.unit_id < best.unit_id)))))
+                    });
+                    if replace {
+                        best_candidate = Some(candidate);
+                    }
+                }
+            }
+
+            let Some(best_candidate) = best_candidate else {
+                break;
+            };
+
+            apply_requirements(
+                best_candidate.period_index,
+                &best_candidate.requirements,
+                &mut usage_by_period,
+                1.0,
+            );
+            scheduled_period_by_unit
+                .insert(best_candidate.unit_id.clone(), best_candidate.period_index);
+            total_objective_value += best_candidate.objective_value;
+            total_discounted_objective_value += best_candidate.discounted_objective_value;
+            assignments.push(SmallSchedulingAssignment {
+                unit_id: best_candidate.unit_id,
+                period_label: problem.periods()[best_candidate.period_index]
+                    .period_label()
+                    .to_owned(),
+                period_index: best_candidate.period_index,
+                destination_id: best_candidate.destination_id,
+                objective_value: best_candidate.objective_value,
+                discounted_objective_value: best_candidate.discounted_objective_value,
+            });
+        }
+    }
+
+    if !period_lower_bounds_satisfied(&usage_by_period, &period_resource_limits) {
+        return Err(MineError::Planning {
+            message:
+                "target-period seeded schedule did not satisfy all configured lower resource bounds"
+                    .to_owned(),
+        });
+    }
+
+    Ok(materialize_solution(
+        problem,
+        SearchState {
+            assignments,
+            usage_by_period,
+            total_objective_value,
+            total_discounted_objective_value,
+        },
+        &period_resource_limits,
+    ))
+}
+
+/// Construye un schedule rolling-horizon que resuelve exactamente un packing
+/// pequeño por periodo sobre una ventana LP-guided de unidades ready.
+///
+/// En cada iteración selecciona hasta `candidate_window_size` unidades listas,
+/// priorizadas por cercanía al periodo objetivo y score económico, y resuelve
+/// exactamente qué subconjunto cabe en el periodo actual. Luego reabre la
+/// frontera dentro del mismo periodo para permitir precedencias en el mismo
+/// bucket temporal.
+pub fn build_target_period_windowed_schedule(
+    problem: &SchedulingProblem,
+    target_period_by_unit: &BTreeMap<SchedulingUnitId, usize>,
+    candidate_window_size: usize,
+) -> Result<SmallSchedulingSolution, MineError> {
+    if candidate_window_size == 0 || candidate_window_size > MAX_SMALL_SCHEDULING_UNITS {
+        return Err(MineError::invalid_parameter(
+            "candidate_window_size",
+            "must be between 1 and 18",
+        ));
+    }
+
+    let period_resource_limits = problem
+        .periods()
+        .iter()
+        .map(|period| {
+            period
+                .resource_bounds()
+                .iter()
+                .map(|bound| {
+                    (
+                        bound.resource_id().clone(),
+                        (bound.min_total(), bound.max_total()),
+                    )
+                })
+                .collect::<BTreeMap<_, _>>()
+        })
+        .collect::<Vec<_>>();
+    let objective_by_unit = index_objective_terms(problem.objective_terms());
+    let requirements_by_unit = index_resource_requirements(problem.resource_requirements());
+    let mut usage_by_period =
+        vec![BTreeMap::<SchedulingResourceId, f64>::new(); problem.periods().len()];
+    let mut scheduled_period_by_unit = BTreeMap::<SchedulingUnitId, usize>::new();
+    let mut assignments = Vec::<SmallSchedulingAssignment>::new();
+    let mut total_objective_value = 0.0;
+    let mut total_discounted_objective_value = 0.0;
+
+    for period_index in 0..problem.periods().len() {
+        loop {
+            let ready_window = select_window_candidates(
+                problem,
+                period_index,
+                candidate_window_size,
+                target_period_by_unit,
+                &objective_by_unit,
+                &requirements_by_unit,
+                &usage_by_period,
+                &period_resource_limits,
+                &scheduled_period_by_unit,
+            );
+            if ready_window.is_empty() {
+                break;
+            }
+
+            let residual_period = build_residual_period_for_window(
+                &problem.periods()[period_index],
+                &usage_by_period[period_index],
+            )?;
+            let window_problem = build_window_subproblem(problem, &ready_window, residual_period)?;
+            let window_solution = solve_small_scheduling_problem(&window_problem)?;
+            if window_solution.assignments().is_empty() {
+                let Some(fallback_candidate) = best_candidate_for_unit(
+                    problem,
+                    problem
+                        .units()
+                        .iter()
+                        .find(|unit| unit.unit_id() == &ready_window[0])
+                        .expect("window candidate should exist"),
+                    period_index,
+                    &objective_by_unit,
+                    &requirements_by_unit,
+                    &usage_by_period,
+                    &period_resource_limits,
+                ) else {
+                    break;
+                };
+                apply_requirements(
+                    period_index,
+                    &fallback_candidate.requirements,
+                    &mut usage_by_period,
+                    1.0,
+                );
+                scheduled_period_by_unit.insert(fallback_candidate.unit_id.clone(), period_index);
+                total_objective_value += fallback_candidate.objective_value;
+                total_discounted_objective_value += fallback_candidate.discounted_objective_value;
+                assignments.push(SmallSchedulingAssignment {
+                    unit_id: fallback_candidate.unit_id,
+                    period_label: problem.periods()[period_index].period_label().to_owned(),
+                    period_index,
+                    destination_id: fallback_candidate.destination_id,
+                    objective_value: fallback_candidate.objective_value,
+                    discounted_objective_value: fallback_candidate.discounted_objective_value,
+                });
+                continue;
+            }
+
+            for assignment in window_solution.assignments() {
+                let requirements = requirements_by_unit
+                    .get(assignment.unit_id())
+                    .map(|indexed| {
+                        indexed
+                            .iter()
+                            .filter(|(_, destination_id, _)| {
+                                destination_id.is_none()
+                                    || *destination_id == assignment.destination_id().cloned()
+                            })
+                            .map(|(resource_id, _, amount)| (resource_id.clone(), *amount))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                apply_requirements(period_index, &requirements, &mut usage_by_period, 1.0);
+                scheduled_period_by_unit.insert(assignment.unit_id().clone(), period_index);
+                total_objective_value += assignment.objective_value();
+                total_discounted_objective_value += assignment.discounted_objective_value();
+                assignments.push(SmallSchedulingAssignment {
+                    unit_id: assignment.unit_id().clone(),
+                    period_label: problem.periods()[period_index].period_label().to_owned(),
+                    period_index,
+                    destination_id: assignment.destination_id().cloned(),
+                    objective_value: assignment.objective_value(),
+                    discounted_objective_value: assignment.discounted_objective_value(),
+                });
+            }
+        }
+    }
+
+    if !period_lower_bounds_satisfied(&usage_by_period, &period_resource_limits) {
+        return Err(MineError::Planning {
+            message:
+                "target-period windowed schedule did not satisfy all configured lower resource bounds"
+                    .to_owned(),
+        });
+    }
+
+    Ok(materialize_solution(
+        problem,
+        SearchState {
+            assignments,
+            usage_by_period,
+            total_objective_value,
+            total_discounted_objective_value,
+        },
+        &period_resource_limits,
+    ))
+}
+
 /// Construye un `LongTermSchedule` usando la heurística `ready frontier` sobre
 /// un `SchedulingProblem` con ruteo explícito por destino.
 ///
@@ -416,6 +716,36 @@ pub fn build_ready_frontier_long_term_schedule(
 ) -> Result<LongTermSchedule, MineError> {
     let enriched_problem = enrich_problem_for_ready_frontier(problem)?;
     let solution = build_ready_frontier_schedule(&enriched_problem)?;
+    materialize_long_term_schedule(problem, &solution, max_vertical_advance, metadata)
+}
+
+/// Construye un `LongTermSchedule` seeded por periodos objetivo por unidad.
+pub fn build_target_period_seeded_long_term_schedule(
+    problem: &SchedulingProblem,
+    target_period_by_unit: &BTreeMap<SchedulingUnitId, usize>,
+    max_vertical_advance: Option<i64>,
+    metadata: Metadata,
+) -> Result<LongTermSchedule, MineError> {
+    let enriched_problem = enrich_problem_for_ready_frontier(problem)?;
+    let solution = build_target_period_seeded_schedule(&enriched_problem, target_period_by_unit)?;
+    materialize_long_term_schedule(problem, &solution, max_vertical_advance, metadata)
+}
+
+/// Construye un `LongTermSchedule` rolling-horizon sobre una ventana exacta
+/// LP-guided por periodo.
+pub fn build_target_period_windowed_long_term_schedule(
+    problem: &SchedulingProblem,
+    target_period_by_unit: &BTreeMap<SchedulingUnitId, usize>,
+    candidate_window_size: usize,
+    max_vertical_advance: Option<i64>,
+    metadata: Metadata,
+) -> Result<LongTermSchedule, MineError> {
+    let enriched_problem = enrich_problem_for_ready_frontier(problem)?;
+    let solution = build_target_period_windowed_schedule(
+        &enriched_problem,
+        target_period_by_unit,
+        candidate_window_size,
+    )?;
     materialize_long_term_schedule(problem, &solution, max_vertical_advance, metadata)
 }
 
@@ -581,7 +911,7 @@ fn topological_unit_order(problem: &SchedulingProblem) -> Result<Vec<usize>, Min
     Ok(order)
 }
 
-fn enrich_problem_for_ready_frontier(
+pub(crate) fn enrich_problem_for_ready_frontier(
     problem: &SchedulingProblem,
 ) -> Result<SchedulingProblem, MineError> {
     let periods = problem
@@ -761,7 +1091,7 @@ fn destination_capacity_resource_id(
     SchedulingResourceId::new(format!("destination_capacity::{destination_id}"))
 }
 
-fn materialize_long_term_schedule(
+pub(crate) fn materialize_long_term_schedule(
     problem: &SchedulingProblem,
     solution: &SmallSchedulingSolution,
     max_vertical_advance: Option<i64>,
@@ -890,6 +1220,258 @@ fn predecessor_periods(
     Ok(Some(earliest_period_index))
 }
 
+#[allow(clippy::too_many_arguments)]
+fn select_window_candidates(
+    problem: &SchedulingProblem,
+    period_index: usize,
+    candidate_window_size: usize,
+    target_period_by_unit: &BTreeMap<SchedulingUnitId, usize>,
+    objective_by_unit: &ObjectiveIndex,
+    requirements_by_unit: &RequirementIndex,
+    usage_by_period: &[BTreeMap<SchedulingResourceId, f64>],
+    period_resource_limits: &[BTreeMap<SchedulingResourceId, (Option<f64>, Option<f64>)>],
+    scheduled_period_by_unit: &BTreeMap<SchedulingUnitId, usize>,
+) -> Vec<SchedulingUnitId> {
+    let mut ranked = problem
+        .units()
+        .iter()
+        .filter(|unit| !scheduled_period_by_unit.contains_key(unit.unit_id()))
+        .filter(|unit| {
+            unit.predecessor_unit_ids()
+                .iter()
+                .all(|predecessor| scheduled_period_by_unit.contains_key(predecessor))
+        })
+        .filter_map(|unit| {
+            let best_option = build_unit_options(unit, objective_by_unit, requirements_by_unit)
+                .into_iter()
+                .filter(|option| {
+                    fits_upper_bounds(
+                        period_index,
+                        &option.requirements,
+                        usage_by_period,
+                        period_resource_limits,
+                    )
+                })
+                .max_by(|left, right| {
+                    let left_load = left
+                        .requirements
+                        .iter()
+                        .map(|(_, amount)| *amount)
+                        .sum::<f64>()
+                        .max(unit.tonnage())
+                        .max(1.0e-9);
+                    let right_load = right
+                        .requirements
+                        .iter()
+                        .map(|(_, amount)| *amount)
+                        .sum::<f64>()
+                        .max(unit.tonnage())
+                        .max(1.0e-9);
+                    let left_score = left.objective_value / left_load;
+                    let right_score = right.objective_value / right_load;
+                    left_score
+                        .partial_cmp(&right_score)
+                        .expect("window scores should be finite")
+                        .then_with(|| {
+                            left.objective_value
+                                .partial_cmp(&right.objective_value)
+                                .expect("window objective should be finite")
+                        })
+                })?;
+            let load = best_option
+                .requirements
+                .iter()
+                .map(|(_, amount)| *amount)
+                .sum::<f64>()
+                .max(unit.tonnage())
+                .max(1.0e-9);
+            let target_period = target_period_by_unit
+                .get(unit.unit_id())
+                .copied()
+                .unwrap_or(period_index);
+            Some(FrontierCandidate {
+                unit_id: unit.unit_id().clone(),
+                period_index,
+                destination_id: best_option.destination_id,
+                requirements: best_option.requirements,
+                objective_value: best_option.objective_value,
+                discounted_objective_value: best_option.objective_value
+                    / (1.0 + problem.discount_rate()).powi(period_index as i32),
+                priority_distance: period_index.abs_diff(target_period),
+                score: best_option.objective_value / load,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    ranked.sort_by(|left, right| {
+        let left_tardiness = period_index.saturating_sub(
+            target_period_by_unit
+                .get(&left.unit_id)
+                .copied()
+                .unwrap_or(period_index),
+        );
+        let right_tardiness = period_index.saturating_sub(
+            target_period_by_unit
+                .get(&right.unit_id)
+                .copied()
+                .unwrap_or(period_index),
+        );
+        right_tardiness
+            .cmp(&left_tardiness)
+            .then_with(|| left.priority_distance.cmp(&right.priority_distance))
+            .then_with(|| {
+                right
+                    .score
+                    .partial_cmp(&left.score)
+                    .expect("window scores should be finite")
+            })
+            .then_with(|| left.unit_id.cmp(&right.unit_id))
+    });
+
+    ranked
+        .into_iter()
+        .take(candidate_window_size)
+        .map(|candidate| candidate.unit_id)
+        .collect()
+}
+
+fn best_candidate_for_unit(
+    problem: &SchedulingProblem,
+    unit: &SchedulingUnit,
+    period_index: usize,
+    objective_by_unit: &ObjectiveIndex,
+    requirements_by_unit: &RequirementIndex,
+    usage_by_period: &[BTreeMap<SchedulingResourceId, f64>],
+    period_resource_limits: &[BTreeMap<SchedulingResourceId, (Option<f64>, Option<f64>)>],
+) -> Option<FrontierCandidate> {
+    build_unit_options(unit, objective_by_unit, requirements_by_unit)
+        .into_iter()
+        .filter(|option| {
+            fits_upper_bounds(
+                period_index,
+                &option.requirements,
+                usage_by_period,
+                period_resource_limits,
+            )
+        })
+        .map(|option| {
+            let discounted_objective_value =
+                option.objective_value / (1.0 + problem.discount_rate()).powi(period_index as i32);
+            let load = option
+                .requirements
+                .iter()
+                .map(|(_, amount)| *amount)
+                .sum::<f64>()
+                .max(unit.tonnage())
+                .max(1.0e-9);
+            FrontierCandidate {
+                unit_id: unit.unit_id().clone(),
+                period_index,
+                destination_id: option.destination_id,
+                requirements: option.requirements,
+                objective_value: option.objective_value,
+                discounted_objective_value,
+                priority_distance: 0,
+                score: discounted_objective_value / load,
+            }
+        })
+        .max_by(|left, right| {
+            left.score
+                .partial_cmp(&right.score)
+                .expect("candidate scores should be finite")
+                .then_with(|| {
+                    left.discounted_objective_value
+                        .partial_cmp(&right.discounted_objective_value)
+                        .expect("candidate objective should be finite")
+                })
+        })
+}
+
+fn build_residual_period_for_window(
+    period: &SchedulingPeriod,
+    current_usage: &BTreeMap<SchedulingResourceId, f64>,
+) -> Result<SchedulingPeriod, MineError> {
+    let residual_bounds = period
+        .resource_bounds()
+        .iter()
+        .map(|bound| {
+            let residual_max_total = bound.max_total().map(|max_total| {
+                (max_total
+                    - current_usage
+                        .get(bound.resource_id())
+                        .copied()
+                        .unwrap_or(0.0))
+                .max(0.0)
+            });
+            crate::SchedulingResourceBound::new(
+                bound.resource_id().clone(),
+                None,
+                residual_max_total,
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    SchedulingPeriod::new(
+        period.period_label(),
+        residual_bounds,
+        period.destination_capacities().to_vec(),
+        period.stockpile_capacities().to_vec(),
+    )
+}
+
+fn build_window_subproblem(
+    problem: &SchedulingProblem,
+    candidate_unit_ids: &[SchedulingUnitId],
+    residual_period: SchedulingPeriod,
+) -> Result<SchedulingProblem, MineError> {
+    let candidate_ids = candidate_unit_ids.iter().cloned().collect::<BTreeSet<_>>();
+    let units = problem
+        .units()
+        .iter()
+        .filter(|unit| candidate_ids.contains(unit.unit_id()))
+        .map(|unit| {
+            SchedulingUnit::new(
+                unit.unit_id().clone(),
+                unit.tonnage(),
+                unit.block_count(),
+                Vec::new(),
+                unit.eligible_destination_ids().to_vec(),
+                unit.eligible_stockpile_ids().to_vec(),
+                unit.block_indices().to_vec(),
+                unit.bench(),
+                unit.shell_index(),
+                unit.metadata().clone(),
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let objective_terms = problem
+        .objective_terms()
+        .iter()
+        .filter(|term| candidate_ids.contains(term.unit_id()))
+        .cloned()
+        .collect::<Vec<_>>();
+    let resource_requirements = problem
+        .resource_requirements()
+        .iter()
+        .filter(|requirement| candidate_ids.contains(requirement.unit_id()))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    SchedulingProblem::new(
+        problem.scenario_id().clone(),
+        problem.model_id().clone(),
+        vec![residual_period],
+        units,
+        objective_terms,
+        resource_requirements,
+        problem.destination_ids().to_vec(),
+        problem.stockpiles().to_vec(),
+        problem.discount_rate(),
+        problem.metadata().clone(),
+        problem.limitations().to_vec(),
+    )
+}
+
 #[derive(Clone)]
 struct UnitOption {
     destination_id: Option<ScheduleDestinationId>,
@@ -904,6 +1486,7 @@ struct FrontierCandidate {
     requirements: Vec<(SchedulingResourceId, f64)>,
     objective_value: f64,
     discounted_objective_value: f64,
+    priority_distance: usize,
     score: f64,
 }
 
