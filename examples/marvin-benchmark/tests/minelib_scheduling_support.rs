@@ -12,9 +12,12 @@ use benchmark_blocks_support::read_benchmark_blocks;
 use marvin_support::{
     read_minelib_cpit_solution, read_minelib_precedence_graph, read_minelib_upit_block_values,
 };
-use mine_sdk::{ColumnId, NestingAccessRules, uniform_revenue_factors};
+use mine_sdk::{ColumnId, NestingAccessRules, PhaseDesign, PushbackPlan, uniform_revenue_factors};
 use minelib_scheduling_support::{
-    build_linear_index_to_row_index, build_marvin_phase_plan_from_revenue_factor_shells,
+    NestedShellAccessMode, build_linear_index_to_row_index,
+    build_marvin_phase_plan_from_revenue_factor_shells,
+    build_marvin_preferred_nested_shell_family_contract,
+    build_marvin_preferred_nested_shell_family_contract_for_phase_plan,
     build_phase_plan_from_nested_shells, build_phase_plan_from_reference_periods,
     build_preferred_phase_plan_for_minelib_scheduling,
 };
@@ -193,13 +196,33 @@ fn preferred_phase_plan_uses_marvin_nested_shell_primary_route() {
         "nested-shell-bench"
     );
     assert!(preferred.metadata.nested_shell_primary);
+    let preferred_shell_family = preferred
+        .metadata
+        .marvin_nested_shell_family_contract
+        .expect("preferred Marvin shell family contract should be surfaced");
+    assert_eq!(preferred_shell_family.revenue_factor_count, 7);
+    assert_eq!(
+        preferred_shell_family.revenue_factors,
+        uniform_revenue_factors(7).expect("canonical revenue factors should build")
+    );
+    assert_eq!(
+        preferred_shell_family.shell_access_mode,
+        NestedShellAccessMode::StrictSequential
+    );
     assert_eq!(
         preferred.phase_plan.nesting_rules,
         NestingAccessRules::strict_sequential()
     );
     assert!(
-        preferred.metadata.unique_shell_count.expect("shell count") > 1,
+        preferred_shell_family
+            .realized_shell_count
+            .expect("realized shell count")
+            > 1,
         "Marvin preferred route should keep the promoted multi-shell family"
+    );
+    assert_eq!(
+        preferred.metadata.unique_shell_count,
+        preferred_shell_family.realized_shell_count
     );
     assert!(
         preferred.metadata.descriptive_note.contains("7-factor"),
@@ -209,7 +232,7 @@ fn preferred_phase_plan_uses_marvin_nested_shell_primary_route() {
         preferred
             .metadata
             .descriptive_note
-            .contains("strict sequential"),
+            .contains("strict-sequential"),
         "report note should describe the promoted strict-sequential path"
     );
     assert!(
@@ -255,6 +278,7 @@ fn preferred_phase_plan_falls_back_to_reference_period_bench_when_nested_shell_i
     );
     assert!(!preferred.metadata.nested_shell_primary);
     assert_eq!(preferred.metadata.unique_shell_count, None);
+    assert_eq!(preferred.metadata.marvin_nested_shell_family_contract, None);
     assert!(
         preferred
             .metadata
@@ -276,4 +300,83 @@ fn preferred_phase_plan_falls_back_to_reference_period_bench_when_nested_shell_i
             .iter()
             .all(|phase| phase.shell_index.is_none())
     );
+}
+
+#[test]
+fn marvin_preferred_shell_family_contract_exposes_exact_factor_vector_and_access_mode() {
+    let contract = build_marvin_preferred_nested_shell_family_contract(7)
+        .expect("preferred Marvin shell family contract should build");
+
+    assert_eq!(contract.aggregation_strategy, "nested-shell-bench");
+    assert_eq!(contract.revenue_factor_count, 7);
+    assert_eq!(
+        contract.revenue_factors,
+        uniform_revenue_factors(7).expect("canonical revenue factors should build")
+    );
+    assert_eq!(
+        contract.shell_access_mode,
+        NestedShellAccessMode::StrictSequential
+    );
+    assert_eq!(contract.realized_shell_count, None);
+}
+
+#[test]
+fn marvin_preferred_shell_family_contract_for_phase_plan_tracks_realized_shell_count() {
+    let phase_plan = PushbackPlan {
+        phases: vec![
+            PhaseDesign {
+                phase_id: "shell-a".to_owned(),
+                pushback_index: 0,
+                shell_index: Some(0),
+                revenue_factor: Some(0.8),
+                bench: Some(100),
+                block_indices: vec![10, 11],
+                block_count: 2,
+                total_tonnage: Some(4.0),
+                predecessor_phase_ids: Vec::new(),
+            },
+            PhaseDesign {
+                phase_id: "shell-b".to_owned(),
+                pushback_index: 1,
+                shell_index: Some(2),
+                revenue_factor: Some(1.2),
+                bench: Some(99),
+                block_indices: vec![20],
+                block_count: 1,
+                total_tonnage: Some(3.0),
+                predecessor_phase_ids: vec!["shell-a".to_owned()],
+            },
+            PhaseDesign {
+                phase_id: "bench-only".to_owned(),
+                pushback_index: 1,
+                shell_index: None,
+                revenue_factor: None,
+                bench: Some(98),
+                block_indices: vec![30],
+                block_count: 1,
+                total_tonnage: Some(2.0),
+                predecessor_phase_ids: vec!["shell-b".to_owned()],
+            },
+        ],
+        phase_count: 3,
+        total_block_count: 4,
+        total_tonnage: Some(9.0),
+        nesting_rules: NestingAccessRules::strict_sequential(),
+        limitations: Vec::new(),
+    };
+
+    let contract =
+        build_marvin_preferred_nested_shell_family_contract_for_phase_plan(7, &phase_plan)
+            .expect("phase-plan contract should build");
+
+    assert_eq!(contract.revenue_factor_count, 7);
+    assert_eq!(
+        contract.revenue_factors,
+        uniform_revenue_factors(7).expect("canonical revenue factors should build")
+    );
+    assert_eq!(
+        contract.shell_access_mode,
+        NestedShellAccessMode::StrictSequential
+    );
+    assert_eq!(contract.realized_shell_count, Some(2));
 }

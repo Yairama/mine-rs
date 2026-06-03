@@ -19,15 +19,17 @@ use mine_core::{Metadata, MetadataValue, MineError};
 
 use crate::long_term_schedule::{
     LongTermSchedule, LongTermScheduleEntry, LongTermSchedulePeriodCapacity,
-    build_long_term_vertical_advance_violations,
+    LongTermScheduleStockpile, build_long_term_vertical_advance_violations,
 };
 use crate::scheduling_problem::{
     SchedulingObjectiveTerm, SchedulingProblem, SchedulingResourceId,
     SchedulingResourceRequirement, SchedulingUnit, SchedulingUnitId,
+    destination_capacity_resource_id, stockpile_reclaim_capacity_resource_id,
 };
-use crate::{ScheduleDestinationId, SchedulingPeriod};
+use crate::{ScheduleDestinationId, ScheduleStockpileId, SchedulingPeriod};
 
 const MAX_SMALL_SCHEDULING_UNITS: usize = 18;
+const SCHEDULING_EPSILON: f64 = 1.0e-9;
 
 /// Asignación exacta de una unidad a un periodo y destino opcional.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -36,6 +38,8 @@ pub struct SmallSchedulingAssignment {
     period_label: String,
     period_index: usize,
     destination_id: Option<ScheduleDestinationId>,
+    stockpile_id: Option<ScheduleStockpileId>,
+    stockpile_inventory_delta_tonnage: f64,
     objective_value: f64,
     discounted_objective_value: f64,
 }
@@ -63,6 +67,18 @@ impl SmallSchedulingAssignment {
     #[must_use]
     pub fn destination_id(&self) -> Option<&ScheduleDestinationId> {
         self.destination_id.as_ref()
+    }
+
+    /// Stockpile elegido, cuando aplica.
+    #[must_use]
+    pub fn stockpile_id(&self) -> Option<&ScheduleStockpileId> {
+        self.stockpile_id.as_ref()
+    }
+
+    /// Delta explícito de inventario aplicado cuando la asignación enruta a stockpile.
+    #[must_use]
+    pub const fn stockpile_inventory_delta_tonnage(&self) -> f64 {
+        self.stockpile_inventory_delta_tonnage
     }
 
     /// Objetivo sin descuento del assignment.
@@ -113,12 +129,55 @@ impl SmallSchedulingResourceUsage {
     }
 }
 
+/// Balance de inventario observado para un stockpile en un periodo.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SmallSchedulingStockpileUsage {
+    stockpile_id: ScheduleStockpileId,
+    opening_tonnage: f64,
+    inventory_delta_tonnage: f64,
+    closing_tonnage: f64,
+    max_inventory_tonnage: Option<f64>,
+}
+
+impl SmallSchedulingStockpileUsage {
+    /// Stockpile reportado.
+    #[must_use]
+    pub fn stockpile_id(&self) -> &ScheduleStockpileId {
+        &self.stockpile_id
+    }
+
+    /// Inventario de apertura del periodo.
+    #[must_use]
+    pub const fn opening_tonnage(&self) -> f64 {
+        self.opening_tonnage
+    }
+
+    /// Delta neto de inventario aplicado en el periodo.
+    #[must_use]
+    pub const fn inventory_delta_tonnage(&self) -> f64 {
+        self.inventory_delta_tonnage
+    }
+
+    /// Inventario de cierre del periodo.
+    #[must_use]
+    pub const fn closing_tonnage(&self) -> f64 {
+        self.closing_tonnage
+    }
+
+    /// Límite máximo de inventario configurado para el periodo.
+    #[must_use]
+    pub const fn max_inventory_tonnage(&self) -> Option<f64> {
+        self.max_inventory_tonnage
+    }
+}
+
 /// Resumen de un periodo dentro de la solución exacta pequeña.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SmallSchedulingPeriodSummary {
     period_label: String,
     assignment_count: usize,
     resource_usage: Vec<SmallSchedulingResourceUsage>,
+    stockpile_usage: Vec<SmallSchedulingStockpileUsage>,
 }
 
 impl SmallSchedulingPeriodSummary {
@@ -138,6 +197,12 @@ impl SmallSchedulingPeriodSummary {
     #[must_use]
     pub fn resource_usage(&self) -> &[SmallSchedulingResourceUsage] {
         &self.resource_usage
+    }
+
+    /// Balance de stockpiles observado durante el periodo.
+    #[must_use]
+    pub fn stockpile_usage(&self) -> &[SmallSchedulingStockpileUsage] {
+        &self.stockpile_usage
     }
 }
 
@@ -220,8 +285,15 @@ pub fn solve_small_scheduling_problem(
     let mut usage_by_period = vec![BTreeMap::<SchedulingResourceId, f64>::new(); period_count];
     let objective_by_unit = index_objective_terms(problem.objective_terms());
     let requirements_by_unit = index_resource_requirements(problem.resource_requirements());
+    let stockpile_opening_inventory = index_stockpile_opening_inventory(problem);
+    let stockpile_inventory_limits = index_stockpile_inventory_limits(problem);
+    let stockpile_reclaim_limits = index_stockpile_reclaim_limits(problem);
     let mut scheduled_period_by_unit = BTreeMap::<SchedulingUnitId, Option<usize>>::new();
     let mut assignments = Vec::<SmallSchedulingAssignment>::new();
+    let mut stockpile_inventory_delta_by_period =
+        vec![BTreeMap::<ScheduleStockpileId, f64>::new(); period_count];
+    let mut stockpile_reclaims_by_period =
+        vec![BTreeMap::<ScheduleStockpileId, f64>::new(); period_count];
     let mut best_solution = None::<SearchState>;
 
     search_exact_assignments(
@@ -231,7 +303,12 @@ pub fn solve_small_scheduling_problem(
         &period_resource_limits,
         &objective_by_unit,
         &requirements_by_unit,
+        &stockpile_opening_inventory,
+        &stockpile_inventory_limits,
+        &stockpile_reclaim_limits,
         &mut usage_by_period,
+        &mut stockpile_inventory_delta_by_period,
+        &mut stockpile_reclaims_by_period,
         &mut scheduled_period_by_unit,
         &mut assignments,
         0.0,
@@ -285,6 +362,13 @@ pub fn build_ready_frontier_schedule(
         .collect::<Vec<_>>();
     let objective_by_unit = index_objective_terms(problem.objective_terms());
     let requirements_by_unit = index_resource_requirements(problem.resource_requirements());
+    let stockpile_inventory_limits = index_stockpile_inventory_limits(problem);
+    let stockpile_reclaim_limits = index_stockpile_reclaim_limits(problem);
+    let stockpile_future_inventory_limits =
+        build_future_stockpile_inventory_limits(&stockpile_inventory_limits);
+    let mut stockpile_inventory_by_id = index_stockpile_opening_inventory(problem);
+    let mut stockpile_reclaims_by_period =
+        vec![BTreeMap::<ScheduleStockpileId, f64>::new(); problem.periods().len()];
     let mut usage_by_period =
         vec![BTreeMap::<SchedulingResourceId, f64>::new(); problem.periods().len()];
     let mut scheduled_period_by_unit = BTreeMap::<SchedulingUnitId, usize>::new();
@@ -314,6 +398,17 @@ pub fn build_ready_frontier_schedule(
                     ) {
                         continue;
                     }
+                    if !fits_effective_stockpile_bounds(
+                        period_index,
+                        option.stockpile_inventory_delta_tonnage,
+                        option.stockpile_id.as_ref(),
+                        &stockpile_inventory_by_id,
+                        &stockpile_reclaims_by_period,
+                        &stockpile_future_inventory_limits,
+                        &stockpile_reclaim_limits,
+                    ) {
+                        continue;
+                    }
 
                     let discounted_objective_value = option.objective_value
                         / (1.0 + problem.discount_rate()).powi(period_index as i32);
@@ -328,6 +423,8 @@ pub fn build_ready_frontier_schedule(
                         unit_id: unit.unit_id().clone(),
                         period_index,
                         destination_id: option.destination_id,
+                        stockpile_id: option.stockpile_id,
+                        stockpile_inventory_delta_tonnage: option.stockpile_inventory_delta_tonnage,
                         requirements: option.requirements,
                         objective_value: option.objective_value,
                         discounted_objective_value,
@@ -359,6 +456,19 @@ pub fn build_ready_frontier_schedule(
                 &mut usage_by_period,
                 1.0,
             );
+            apply_stockpile_inventory(
+                best_candidate.stockpile_id.as_ref(),
+                best_candidate.stockpile_inventory_delta_tonnage,
+                &mut stockpile_inventory_by_id,
+                1.0,
+            );
+            apply_stockpile_reclaim(
+                best_candidate.period_index,
+                best_candidate.stockpile_inventory_delta_tonnage,
+                best_candidate.stockpile_id.as_ref(),
+                &mut stockpile_reclaims_by_period,
+                1.0,
+            );
             scheduled_period_by_unit
                 .insert(best_candidate.unit_id.clone(), best_candidate.period_index);
             total_objective_value += best_candidate.objective_value;
@@ -370,6 +480,8 @@ pub fn build_ready_frontier_schedule(
                     .to_owned(),
                 period_index: best_candidate.period_index,
                 destination_id: best_candidate.destination_id,
+                stockpile_id: best_candidate.stockpile_id,
+                stockpile_inventory_delta_tonnage: best_candidate.stockpile_inventory_delta_tonnage,
                 objective_value: best_candidate.objective_value,
                 discounted_objective_value: best_candidate.discounted_objective_value,
             });
@@ -423,6 +535,13 @@ pub fn build_target_period_seeded_schedule(
         .collect::<Vec<_>>();
     let objective_by_unit = index_objective_terms(problem.objective_terms());
     let requirements_by_unit = index_resource_requirements(problem.resource_requirements());
+    let stockpile_inventory_limits = index_stockpile_inventory_limits(problem);
+    let stockpile_reclaim_limits = index_stockpile_reclaim_limits(problem);
+    let stockpile_future_inventory_limits =
+        build_future_stockpile_inventory_limits(&stockpile_inventory_limits);
+    let mut stockpile_inventory_by_id = index_stockpile_opening_inventory(problem);
+    let mut stockpile_reclaims_by_period =
+        vec![BTreeMap::<ScheduleStockpileId, f64>::new(); problem.periods().len()];
     let mut usage_by_period =
         vec![BTreeMap::<SchedulingResourceId, f64>::new(); problem.periods().len()];
     let mut scheduled_period_by_unit = BTreeMap::<SchedulingUnitId, usize>::new();
@@ -452,6 +571,17 @@ pub fn build_target_period_seeded_schedule(
                     ) {
                         continue;
                     }
+                    if !fits_effective_stockpile_bounds(
+                        period_index,
+                        option.stockpile_inventory_delta_tonnage,
+                        option.stockpile_id.as_ref(),
+                        &stockpile_inventory_by_id,
+                        &stockpile_reclaims_by_period,
+                        &stockpile_future_inventory_limits,
+                        &stockpile_reclaim_limits,
+                    ) {
+                        continue;
+                    }
 
                     let discounted_objective_value = option.objective_value
                         / (1.0 + problem.discount_rate()).powi(period_index as i32);
@@ -470,6 +600,8 @@ pub fn build_target_period_seeded_schedule(
                         unit_id: unit.unit_id().clone(),
                         period_index,
                         destination_id: option.destination_id,
+                        stockpile_id: option.stockpile_id,
+                        stockpile_inventory_delta_tonnage: option.stockpile_inventory_delta_tonnage,
                         requirements: option.requirements,
                         objective_value: option.objective_value,
                         discounted_objective_value,
@@ -503,6 +635,19 @@ pub fn build_target_period_seeded_schedule(
                 &mut usage_by_period,
                 1.0,
             );
+            apply_stockpile_inventory(
+                best_candidate.stockpile_id.as_ref(),
+                best_candidate.stockpile_inventory_delta_tonnage,
+                &mut stockpile_inventory_by_id,
+                1.0,
+            );
+            apply_stockpile_reclaim(
+                best_candidate.period_index,
+                best_candidate.stockpile_inventory_delta_tonnage,
+                best_candidate.stockpile_id.as_ref(),
+                &mut stockpile_reclaims_by_period,
+                1.0,
+            );
             scheduled_period_by_unit
                 .insert(best_candidate.unit_id.clone(), best_candidate.period_index);
             total_objective_value += best_candidate.objective_value;
@@ -514,6 +659,8 @@ pub fn build_target_period_seeded_schedule(
                     .to_owned(),
                 period_index: best_candidate.period_index,
                 destination_id: best_candidate.destination_id,
+                stockpile_id: best_candidate.stockpile_id,
+                stockpile_inventory_delta_tonnage: best_candidate.stockpile_inventory_delta_tonnage,
                 objective_value: best_candidate.objective_value,
                 discounted_objective_value: best_candidate.discounted_objective_value,
             });
@@ -578,6 +725,13 @@ pub fn build_target_period_windowed_schedule(
         .collect::<Vec<_>>();
     let objective_by_unit = index_objective_terms(problem.objective_terms());
     let requirements_by_unit = index_resource_requirements(problem.resource_requirements());
+    let stockpile_inventory_limits = index_stockpile_inventory_limits(problem);
+    let stockpile_reclaim_limits = index_stockpile_reclaim_limits(problem);
+    let stockpile_future_inventory_limits =
+        build_future_stockpile_inventory_limits(&stockpile_inventory_limits);
+    let mut stockpile_inventory_by_id = index_stockpile_opening_inventory(problem);
+    let mut stockpile_reclaims_by_period =
+        vec![BTreeMap::<ScheduleStockpileId, f64>::new(); problem.periods().len()];
     let mut usage_by_period =
         vec![BTreeMap::<SchedulingResourceId, f64>::new(); problem.periods().len()];
     let mut scheduled_period_by_unit = BTreeMap::<SchedulingUnitId, usize>::new();
@@ -594,6 +748,10 @@ pub fn build_target_period_windowed_schedule(
                 target_period_by_unit,
                 &objective_by_unit,
                 &requirements_by_unit,
+                &stockpile_inventory_by_id,
+                &stockpile_reclaims_by_period,
+                &stockpile_future_inventory_limits,
+                &stockpile_reclaim_limits,
                 &usage_by_period,
                 &period_resource_limits,
                 &scheduled_period_by_unit,
@@ -605,8 +763,16 @@ pub fn build_target_period_windowed_schedule(
             let residual_period = build_residual_period_for_window(
                 &problem.periods()[period_index],
                 &usage_by_period[period_index],
+                &stockpile_reclaims_by_period[period_index],
+                &stockpile_future_inventory_limits[period_index],
+                &stockpile_reclaim_limits[period_index],
             )?;
-            let window_problem = build_window_subproblem(problem, &ready_window, residual_period)?;
+            let window_problem = build_window_subproblem(
+                problem,
+                &ready_window,
+                residual_period,
+                &stockpile_inventory_by_id,
+            )?;
             let window_solution = solve_small_scheduling_problem(&window_problem)?;
             if window_solution.assignments().is_empty() {
                 let Some(fallback_candidate) = best_candidate_for_unit(
@@ -619,6 +785,10 @@ pub fn build_target_period_windowed_schedule(
                     period_index,
                     &objective_by_unit,
                     &requirements_by_unit,
+                    &stockpile_inventory_by_id,
+                    &stockpile_reclaims_by_period,
+                    &stockpile_future_inventory_limits,
+                    &stockpile_reclaim_limits,
                     &usage_by_period,
                     &period_resource_limits,
                 ) else {
@@ -630,6 +800,19 @@ pub fn build_target_period_windowed_schedule(
                     &mut usage_by_period,
                     1.0,
                 );
+                apply_stockpile_inventory(
+                    fallback_candidate.stockpile_id.as_ref(),
+                    fallback_candidate.stockpile_inventory_delta_tonnage,
+                    &mut stockpile_inventory_by_id,
+                    1.0,
+                );
+                apply_stockpile_reclaim(
+                    period_index,
+                    fallback_candidate.stockpile_inventory_delta_tonnage,
+                    fallback_candidate.stockpile_id.as_ref(),
+                    &mut stockpile_reclaims_by_period,
+                    1.0,
+                );
                 scheduled_period_by_unit.insert(fallback_candidate.unit_id.clone(), period_index);
                 total_objective_value += fallback_candidate.objective_value;
                 total_discounted_objective_value += fallback_candidate.discounted_objective_value;
@@ -638,6 +821,9 @@ pub fn build_target_period_windowed_schedule(
                     period_label: problem.periods()[period_index].period_label().to_owned(),
                     period_index,
                     destination_id: fallback_candidate.destination_id,
+                    stockpile_id: fallback_candidate.stockpile_id,
+                    stockpile_inventory_delta_tonnage: fallback_candidate
+                        .stockpile_inventory_delta_tonnage,
                     objective_value: fallback_candidate.objective_value,
                     discounted_objective_value: fallback_candidate.discounted_objective_value,
                 });
@@ -659,6 +845,19 @@ pub fn build_target_period_windowed_schedule(
                     })
                     .unwrap_or_default();
                 apply_requirements(period_index, &requirements, &mut usage_by_period, 1.0);
+                apply_stockpile_inventory(
+                    assignment.stockpile_id(),
+                    assignment.stockpile_inventory_delta_tonnage(),
+                    &mut stockpile_inventory_by_id,
+                    1.0,
+                );
+                apply_stockpile_reclaim(
+                    period_index,
+                    assignment.stockpile_inventory_delta_tonnage(),
+                    assignment.stockpile_id(),
+                    &mut stockpile_reclaims_by_period,
+                    1.0,
+                );
                 scheduled_period_by_unit.insert(assignment.unit_id().clone(), period_index);
                 total_objective_value += assignment.objective_value();
                 total_discounted_objective_value += assignment.discounted_objective_value();
@@ -667,6 +866,9 @@ pub fn build_target_period_windowed_schedule(
                     period_label: problem.periods()[period_index].period_label().to_owned(),
                     period_index,
                     destination_id: assignment.destination_id().cloned(),
+                    stockpile_id: assignment.stockpile_id().cloned(),
+                    stockpile_inventory_delta_tonnage: assignment
+                        .stockpile_inventory_delta_tonnage(),
                     objective_value: assignment.objective_value(),
                     discounted_objective_value: assignment.discounted_objective_value(),
                 });
@@ -760,6 +962,7 @@ struct SearchState {
 type ObjectiveIndex = BTreeMap<SchedulingUnitId, BTreeMap<Option<ScheduleDestinationId>, f64>>;
 type RequirementIndex =
     BTreeMap<SchedulingUnitId, Vec<(SchedulingResourceId, Option<ScheduleDestinationId>, f64)>>;
+type StockpileInventoryLimitIndex = Vec<BTreeMap<ScheduleStockpileId, f64>>;
 
 fn search_exact_assignments(
     problem: &SchedulingProblem,
@@ -768,7 +971,12 @@ fn search_exact_assignments(
     period_resource_limits: &[BTreeMap<SchedulingResourceId, (Option<f64>, Option<f64>)>],
     objective_by_unit: &ObjectiveIndex,
     requirements_by_unit: &RequirementIndex,
+    stockpile_opening_inventory: &BTreeMap<ScheduleStockpileId, f64>,
+    stockpile_inventory_limits: &StockpileInventoryLimitIndex,
+    stockpile_reclaim_limits: &StockpileInventoryLimitIndex,
     usage_by_period: &mut [BTreeMap<SchedulingResourceId, f64>],
+    stockpile_inventory_delta_by_period: &mut [BTreeMap<ScheduleStockpileId, f64>],
+    stockpile_reclaims_by_period: &mut [BTreeMap<ScheduleStockpileId, f64>],
     scheduled_period_by_unit: &mut BTreeMap<SchedulingUnitId, Option<usize>>,
     assignments: &mut Vec<SmallSchedulingAssignment>,
     current_total_objective: f64,
@@ -805,7 +1013,12 @@ fn search_exact_assignments(
         period_resource_limits,
         objective_by_unit,
         requirements_by_unit,
+        stockpile_opening_inventory,
+        stockpile_inventory_limits,
+        stockpile_reclaim_limits,
         usage_by_period,
+        stockpile_inventory_delta_by_period,
+        stockpile_reclaims_by_period,
         scheduled_period_by_unit,
         assignments,
         current_total_objective,
@@ -828,8 +1041,34 @@ fn search_exact_assignments(
             ) {
                 continue;
             }
+            if !fits_stockpile_inventory_bounds(
+                period_index,
+                option.stockpile_inventory_delta_tonnage,
+                option.stockpile_id.as_ref(),
+                stockpile_inventory_delta_by_period,
+                stockpile_reclaims_by_period,
+                stockpile_opening_inventory,
+                stockpile_inventory_limits,
+                stockpile_reclaim_limits,
+            ) {
+                continue;
+            }
 
             apply_requirements(period_index, &option.requirements, usage_by_period, 1.0);
+            apply_stockpile_inventory_delta(
+                period_index,
+                option.stockpile_inventory_delta_tonnage,
+                option.stockpile_id.as_ref(),
+                stockpile_inventory_delta_by_period,
+                1.0,
+            );
+            apply_stockpile_reclaim(
+                period_index,
+                option.stockpile_inventory_delta_tonnage,
+                option.stockpile_id.as_ref(),
+                stockpile_reclaims_by_period,
+                1.0,
+            );
             let discounted_objective_value =
                 option.objective_value / (1.0 + problem.discount_rate()).powi(period_index as i32);
             assignments.push(SmallSchedulingAssignment {
@@ -837,6 +1076,8 @@ fn search_exact_assignments(
                 period_label: problem.periods()[period_index].period_label().to_owned(),
                 period_index,
                 destination_id: option.destination_id.clone(),
+                stockpile_id: option.stockpile_id.clone(),
+                stockpile_inventory_delta_tonnage: option.stockpile_inventory_delta_tonnage,
                 objective_value: option.objective_value,
                 discounted_objective_value,
             });
@@ -849,7 +1090,12 @@ fn search_exact_assignments(
                 period_resource_limits,
                 objective_by_unit,
                 requirements_by_unit,
+                stockpile_opening_inventory,
+                stockpile_inventory_limits,
+                stockpile_reclaim_limits,
                 usage_by_period,
+                stockpile_inventory_delta_by_period,
+                stockpile_reclaims_by_period,
                 scheduled_period_by_unit,
                 assignments,
                 current_total_objective + option.objective_value,
@@ -859,6 +1105,20 @@ fn search_exact_assignments(
 
             scheduled_period_by_unit.remove(unit.unit_id());
             assignments.pop();
+            apply_stockpile_reclaim(
+                period_index,
+                option.stockpile_inventory_delta_tonnage,
+                option.stockpile_id.as_ref(),
+                stockpile_reclaims_by_period,
+                -1.0,
+            );
+            apply_stockpile_inventory_delta(
+                period_index,
+                option.stockpile_inventory_delta_tonnage,
+                option.stockpile_id.as_ref(),
+                stockpile_inventory_delta_by_period,
+                -1.0,
+            );
             apply_requirements(period_index, &option.requirements, usage_by_period, -1.0);
         }
     }
@@ -937,6 +1197,7 @@ pub(crate) fn enrich_problem_for_ready_frontier(
 
     for unit in problem.units() {
         if let Some(mine_resource) = &mine_resource
+            && !unit.is_stockpile_reclaim()
             && !has_requirement_for_unit_resource(
                 &resource_requirements,
                 unit.unit_id(),
@@ -952,12 +1213,34 @@ pub(crate) fn enrich_problem_for_ready_frontier(
             derived_requirements = true;
         }
 
+        if let Some(reclaim_tonnage) = unit.stockpile_reclaim_tonnage() {
+            for stockpile_id in unit.eligible_stockpile_ids() {
+                let reclaim_resource = stockpile_reclaim_capacity_resource_id(stockpile_id)?;
+                if declared_resource_ids.contains(&reclaim_resource)
+                    && !has_requirement_for_unit_resource(
+                        &resource_requirements,
+                        unit.unit_id(),
+                        &reclaim_resource,
+                    )
+                {
+                    resource_requirements.push(SchedulingResourceRequirement::new(
+                        unit.unit_id().clone(),
+                        reclaim_resource,
+                        None,
+                        reclaim_tonnage,
+                    )?);
+                    derived_requirements = true;
+                }
+            }
+        }
+
         let candidate_destinations = candidate_destination_ids(problem, unit);
         if candidate_destinations.is_empty() {
             continue;
         }
 
         if let Some(plant_resource) = &plant_resource
+            && !unit.is_stockpile_reclaim()
             && !has_requirement_for_unit_resource(
                 &resource_requirements,
                 unit.unit_id(),
@@ -998,7 +1281,7 @@ pub(crate) fn enrich_problem_for_ready_frontier(
     let mut limitations = problem.limitations().to_vec();
     if derived_requirements {
         limitations.push(
-            "Ready-frontier long-term schedule auto-derived tonnage requirements for mine, plant and destination capacities when the SchedulingProblem omitted them.".to_owned(),
+            "Ready-frontier long-term schedule auto-derived tonnage requirements for mine, plant, destination and stockpile reclaim capacities when the SchedulingProblem omitted them.".to_owned(),
         );
     }
 
@@ -1026,6 +1309,23 @@ fn enrich_period_with_destination_capacity_resources(
             continue;
         };
         let resource_id = destination_capacity_resource_id(capacity.destination_id())?;
+        if resource_bounds
+            .iter()
+            .any(|bound| bound.resource_id() == &resource_id)
+        {
+            continue;
+        }
+        resource_bounds.push(crate::SchedulingResourceBound::new(
+            resource_id,
+            None,
+            Some(max_total),
+        )?);
+    }
+    for capacity in period.stockpile_capacities() {
+        let Some(max_total) = capacity.max_reclaim_tonnage() else {
+            continue;
+        };
+        let resource_id = stockpile_reclaim_capacity_resource_id(capacity.stockpile_id())?;
         if resource_bounds
             .iter()
             .any(|bound| bound.resource_id() == &resource_id)
@@ -1085,12 +1385,6 @@ fn has_requirement_for_unit_resource(
     })
 }
 
-fn destination_capacity_resource_id(
-    destination_id: &ScheduleDestinationId,
-) -> Result<SchedulingResourceId, MineError> {
-    SchedulingResourceId::new(format!("destination_capacity::{destination_id}"))
-}
-
 pub(crate) fn materialize_long_term_schedule(
     problem: &SchedulingProblem,
     solution: &SmallSchedulingSolution,
@@ -1115,34 +1409,71 @@ pub(crate) fn materialize_long_term_schedule(
             .then_with(|| left.unit_id().cmp(right.unit_id()))
     });
 
-    let entries = assignments
-        .into_iter()
-        .map(|assignment| {
-            let unit = units_by_id
-                .get(assignment.unit_id())
-                .copied()
-                .ok_or_else(|| MineError::Planning {
-                    message: format!(
-                        "scheduled unit `{}` is missing from the original SchedulingProblem",
-                        assignment.unit_id()
-                    ),
-                })?;
-            LongTermScheduleEntry::new(
-                assignment.period_label(),
-                Some(long_term_phase_id(unit)),
-                unit.shell_index(),
-                unit.bench(),
-                unit.tonnage(),
-                unit.block_count(),
-                assignment.destination_id().cloned(),
-                None,
-                unit.predecessor_unit_ids()
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect(),
-            )
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let entries =
+        assignments
+            .into_iter()
+            .map(|assignment| {
+                let unit = units_by_id
+                    .get(assignment.unit_id())
+                    .copied()
+                    .ok_or_else(|| MineError::Planning {
+                        message: format!(
+                            "scheduled unit `{}` is missing from the original SchedulingProblem",
+                            assignment.unit_id()
+                        ),
+                    })?;
+                if assignment.stockpile_inventory_delta_tonnage() < -SCHEDULING_EPSILON {
+                    let destination_id = assignment.destination_id().cloned().ok_or_else(|| {
+                        MineError::Planning {
+                            message: format!(
+                                "reclaim assignment `{}` is missing a final destination",
+                                assignment.unit_id()
+                            ),
+                        }
+                    })?;
+                    let reclaim_stockpile_id =
+                        assignment
+                            .stockpile_id()
+                            .cloned()
+                            .ok_or_else(|| MineError::Planning {
+                                message: format!(
+                                    "reclaim assignment `{}` is missing its source stockpile",
+                                    assignment.unit_id()
+                                ),
+                            })?;
+                    LongTermScheduleEntry::new_with_reclaim(
+                        assignment.period_label(),
+                        Some(long_term_phase_id(unit)),
+                        None,
+                        None,
+                        unit.tonnage(),
+                        unit.block_count(),
+                        Some(destination_id),
+                        None,
+                        Some(reclaim_stockpile_id),
+                        unit.predecessor_unit_ids()
+                            .iter()
+                            .map(ToString::to_string)
+                            .collect(),
+                    )
+                } else {
+                    LongTermScheduleEntry::new(
+                        assignment.period_label(),
+                        Some(long_term_phase_id(unit)),
+                        unit.shell_index(),
+                        unit.bench(),
+                        unit.tonnage(),
+                        unit.block_count(),
+                        assignment.destination_id().cloned(),
+                        assignment.stockpile_id().cloned(),
+                        unit.predecessor_unit_ids()
+                            .iter()
+                            .map(ToString::to_string)
+                            .collect(),
+                    )
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
     if entries.is_empty() {
         return Err(MineError::Planning {
@@ -1228,6 +1559,10 @@ fn select_window_candidates(
     target_period_by_unit: &BTreeMap<SchedulingUnitId, usize>,
     objective_by_unit: &ObjectiveIndex,
     requirements_by_unit: &RequirementIndex,
+    stockpile_inventory_by_id: &BTreeMap<ScheduleStockpileId, f64>,
+    stockpile_reclaims_by_period: &[BTreeMap<ScheduleStockpileId, f64>],
+    stockpile_future_inventory_limits: &StockpileInventoryLimitIndex,
+    stockpile_reclaim_limits: &StockpileInventoryLimitIndex,
     usage_by_period: &[BTreeMap<SchedulingResourceId, f64>],
     period_resource_limits: &[BTreeMap<SchedulingResourceId, (Option<f64>, Option<f64>)>],
     scheduled_period_by_unit: &BTreeMap<SchedulingUnitId, usize>,
@@ -1250,6 +1585,14 @@ fn select_window_candidates(
                         &option.requirements,
                         usage_by_period,
                         period_resource_limits,
+                    ) && fits_effective_stockpile_bounds(
+                        period_index,
+                        option.stockpile_inventory_delta_tonnage,
+                        option.stockpile_id.as_ref(),
+                        stockpile_inventory_by_id,
+                        stockpile_reclaims_by_period,
+                        stockpile_future_inventory_limits,
+                        stockpile_reclaim_limits,
                     )
                 })
                 .max_by(|left, right| {
@@ -1293,6 +1636,8 @@ fn select_window_candidates(
                 unit_id: unit.unit_id().clone(),
                 period_index,
                 destination_id: best_option.destination_id,
+                stockpile_id: best_option.stockpile_id,
+                stockpile_inventory_delta_tonnage: best_option.stockpile_inventory_delta_tonnage,
                 requirements: best_option.requirements,
                 objective_value: best_option.objective_value,
                 discounted_objective_value: best_option.objective_value
@@ -1341,6 +1686,10 @@ fn best_candidate_for_unit(
     period_index: usize,
     objective_by_unit: &ObjectiveIndex,
     requirements_by_unit: &RequirementIndex,
+    stockpile_inventory_by_id: &BTreeMap<ScheduleStockpileId, f64>,
+    stockpile_reclaims_by_period: &[BTreeMap<ScheduleStockpileId, f64>],
+    stockpile_future_inventory_limits: &StockpileInventoryLimitIndex,
+    stockpile_reclaim_limits: &StockpileInventoryLimitIndex,
     usage_by_period: &[BTreeMap<SchedulingResourceId, f64>],
     period_resource_limits: &[BTreeMap<SchedulingResourceId, (Option<f64>, Option<f64>)>],
 ) -> Option<FrontierCandidate> {
@@ -1352,6 +1701,14 @@ fn best_candidate_for_unit(
                 &option.requirements,
                 usage_by_period,
                 period_resource_limits,
+            ) && fits_effective_stockpile_bounds(
+                period_index,
+                option.stockpile_inventory_delta_tonnage,
+                option.stockpile_id.as_ref(),
+                stockpile_inventory_by_id,
+                stockpile_reclaims_by_period,
+                stockpile_future_inventory_limits,
+                stockpile_reclaim_limits,
             )
         })
         .map(|option| {
@@ -1368,6 +1725,8 @@ fn best_candidate_for_unit(
                 unit_id: unit.unit_id().clone(),
                 period_index,
                 destination_id: option.destination_id,
+                stockpile_id: option.stockpile_id,
+                stockpile_inventory_delta_tonnage: option.stockpile_inventory_delta_tonnage,
                 requirements: option.requirements,
                 objective_value: option.objective_value,
                 discounted_objective_value,
@@ -1390,6 +1749,9 @@ fn best_candidate_for_unit(
 fn build_residual_period_for_window(
     period: &SchedulingPeriod,
     current_usage: &BTreeMap<SchedulingResourceId, f64>,
+    current_reclaims: &BTreeMap<ScheduleStockpileId, f64>,
+    effective_stockpile_inventory_limits: &BTreeMap<ScheduleStockpileId, f64>,
+    stockpile_reclaim_limits: &BTreeMap<ScheduleStockpileId, f64>,
 ) -> Result<SchedulingPeriod, MineError> {
     let residual_bounds = period
         .resource_bounds()
@@ -1411,11 +1773,39 @@ fn build_residual_period_for_window(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    let residual_stockpile_capacities = period
+        .stockpile_capacities()
+        .iter()
+        .map(|capacity| {
+            let max_inventory_tonnage = effective_stockpile_inventory_limits
+                .get(capacity.stockpile_id())
+                .copied()
+                .or_else(|| capacity.max_inventory_tonnage());
+            let max_reclaim_tonnage = stockpile_reclaim_limits
+                .get(capacity.stockpile_id())
+                .copied()
+                .or_else(|| capacity.max_reclaim_tonnage())
+                .map(|max_reclaim_tonnage| {
+                    (max_reclaim_tonnage
+                        - current_reclaims
+                            .get(capacity.stockpile_id())
+                            .copied()
+                            .unwrap_or(0.0))
+                    .max(0.0)
+                });
+            crate::ScheduleStockpileCapacity::new(
+                capacity.stockpile_id().clone(),
+                max_inventory_tonnage,
+                max_reclaim_tonnage,
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
     SchedulingPeriod::new(
         period.period_label(),
         residual_bounds,
         period.destination_capacities().to_vec(),
-        period.stockpile_capacities().to_vec(),
+        residual_stockpile_capacities,
     )
 }
 
@@ -1423,6 +1813,7 @@ fn build_window_subproblem(
     problem: &SchedulingProblem,
     candidate_unit_ids: &[SchedulingUnitId],
     residual_period: SchedulingPeriod,
+    stockpile_inventory_by_id: &BTreeMap<ScheduleStockpileId, f64>,
 ) -> Result<SchedulingProblem, MineError> {
     let candidate_ids = candidate_unit_ids.iter().cloned().collect::<BTreeSet<_>>();
     let units = problem
@@ -1442,6 +1833,11 @@ fn build_window_subproblem(
                 unit.shell_index(),
                 unit.metadata().clone(),
             )
+            .and_then(|unit_clone| {
+                unit_clone.with_stockpile_inventory_delta_tonnage(
+                    unit.stockpile_inventory_delta_tonnage(),
+                )
+            })
         })
         .collect::<Result<Vec<_>, _>>()?;
     let objective_terms = problem
@@ -1456,6 +1852,20 @@ fn build_window_subproblem(
         .filter(|requirement| candidate_ids.contains(requirement.unit_id()))
         .cloned()
         .collect::<Vec<_>>();
+    let stockpiles = problem
+        .stockpiles()
+        .iter()
+        .map(|stockpile| {
+            LongTermScheduleStockpile::new(
+                stockpile.stockpile_id().clone(),
+                stockpile_inventory_by_id
+                    .get(stockpile.stockpile_id())
+                    .copied()
+                    .unwrap_or_else(|| stockpile.opening_tonnage()),
+                stockpile.metadata().clone(),
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
     SchedulingProblem::new(
         problem.scenario_id().clone(),
@@ -1465,7 +1875,7 @@ fn build_window_subproblem(
         objective_terms,
         resource_requirements,
         problem.destination_ids().to_vec(),
-        problem.stockpiles().to_vec(),
+        stockpiles,
         problem.discount_rate(),
         problem.metadata().clone(),
         problem.limitations().to_vec(),
@@ -1475,6 +1885,8 @@ fn build_window_subproblem(
 #[derive(Clone)]
 struct UnitOption {
     destination_id: Option<ScheduleDestinationId>,
+    stockpile_id: Option<ScheduleStockpileId>,
+    stockpile_inventory_delta_tonnage: f64,
     objective_value: f64,
     requirements: Vec<(SchedulingResourceId, f64)>,
 }
@@ -1483,6 +1895,8 @@ struct FrontierCandidate {
     unit_id: SchedulingUnitId,
     period_index: usize,
     destination_id: Option<ScheduleDestinationId>,
+    stockpile_id: Option<ScheduleStockpileId>,
+    stockpile_inventory_delta_tonnage: f64,
     requirements: Vec<(SchedulingResourceId, f64)>,
     objective_value: f64,
     discounted_objective_value: f64,
@@ -1515,11 +1929,16 @@ fn build_unit_options(
             destination_scope.insert(destination_id.clone());
         }
     }
+    let stockpile_inventory_delta_tonnage = unit.effective_stockpile_inventory_delta_tonnage();
+    let is_reclaim_option = stockpile_inventory_delta_tonnage < -SCHEDULING_EPSILON;
 
-    destination_scope
+    let destination_options = destination_scope
         .into_iter()
         .filter(|destination_id| {
-            destination_id.is_some() || unit.eligible_destination_ids().is_empty()
+            !is_reclaim_option
+                && (destination_id.is_some()
+                    || (unit.eligible_destination_ids().is_empty()
+                        && unit.eligible_stockpile_ids().is_empty()))
         })
         .map(|destination_id| {
             let destination_objective = if destination_id.is_none() {
@@ -1546,11 +1965,335 @@ fn build_unit_options(
 
             UnitOption {
                 destination_id,
+                stockpile_id: None,
+                stockpile_inventory_delta_tonnage: 0.0,
                 objective_value: generic_objective + destination_objective,
                 requirements,
             }
         })
+        .collect::<Vec<_>>();
+    let stockpile_options = if is_reclaim_option {
+        unit.eligible_stockpile_ids()
+            .iter()
+            .cloned()
+            .flat_map(|stockpile_id| {
+                let objective_terms = objective_terms;
+                destination_scope_for_reclaim(unit, requirements_by_unit, objective_by_unit)
+                    .into_iter()
+                    .map(move |destination_id| {
+                        let destination_objective = objective_terms
+                            .and_then(|terms| terms.get(&Some(destination_id.clone())))
+                            .copied()
+                            .unwrap_or(0.0);
+                        let requirements = requirements_by_unit
+                            .get(unit.unit_id())
+                            .map(|requirements| {
+                                requirements
+                                    .iter()
+                                    .filter(|(_, requirement_destination_id, _)| {
+                                        requirement_destination_id.is_none()
+                                            || *requirement_destination_id
+                                                == Some(destination_id.clone())
+                                    })
+                                    .map(|(resource_id, _, amount)| (resource_id.clone(), *amount))
+                                    .collect::<Vec<_>>()
+                            })
+                            .unwrap_or_default();
+
+                        UnitOption {
+                            destination_id: Some(destination_id.clone()),
+                            stockpile_id: Some(stockpile_id.clone()),
+                            stockpile_inventory_delta_tonnage,
+                            objective_value: generic_objective + destination_objective,
+                            requirements,
+                        }
+                    })
+            })
+            .collect::<Vec<_>>()
+    } else {
+        unit.eligible_stockpile_ids()
+            .iter()
+            .cloned()
+            .map(|stockpile_id| {
+                let requirements = requirements_by_unit
+                    .get(unit.unit_id())
+                    .map(|requirements| {
+                        requirements
+                            .iter()
+                            .filter(|(_, requirement_destination_id, _)| {
+                                requirement_destination_id.is_none()
+                            })
+                            .map(|(resource_id, _, amount)| (resource_id.clone(), *amount))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+
+                UnitOption {
+                    destination_id: None,
+                    stockpile_id: Some(stockpile_id),
+                    stockpile_inventory_delta_tonnage,
+                    objective_value: generic_objective,
+                    requirements,
+                }
+            })
+            .collect::<Vec<_>>()
+    };
+
+    destination_options
+        .into_iter()
+        .chain(stockpile_options)
         .collect()
+}
+
+fn destination_scope_for_reclaim(
+    unit: &SchedulingUnit,
+    requirements_by_unit: &RequirementIndex,
+    objective_by_unit: &ObjectiveIndex,
+) -> Vec<ScheduleDestinationId> {
+    let mut destination_scope = unit
+        .eligible_destination_ids()
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    if let Some(objective_terms) = objective_by_unit.get(unit.unit_id()) {
+        for destination_id in objective_terms.keys().flatten() {
+            destination_scope.insert(destination_id.clone());
+        }
+    }
+    if let Some(requirements) = requirements_by_unit.get(unit.unit_id()) {
+        for (_, destination_id, _) in requirements {
+            if let Some(destination_id) = destination_id {
+                destination_scope.insert(destination_id.clone());
+            }
+        }
+    }
+    destination_scope.into_iter().collect()
+}
+
+fn index_stockpile_opening_inventory(
+    problem: &SchedulingProblem,
+) -> BTreeMap<ScheduleStockpileId, f64> {
+    problem
+        .stockpiles()
+        .iter()
+        .map(|stockpile| {
+            (
+                stockpile.stockpile_id().clone(),
+                stockpile.opening_tonnage(),
+            )
+        })
+        .collect()
+}
+
+fn index_stockpile_inventory_limits(problem: &SchedulingProblem) -> StockpileInventoryLimitIndex {
+    problem
+        .periods()
+        .iter()
+        .map(|period| {
+            period
+                .stockpile_capacities()
+                .iter()
+                .filter_map(|capacity| {
+                    capacity
+                        .max_inventory_tonnage()
+                        .map(|limit| (capacity.stockpile_id().clone(), limit))
+                })
+                .collect::<BTreeMap<_, _>>()
+        })
+        .collect()
+}
+
+fn index_stockpile_reclaim_limits(problem: &SchedulingProblem) -> StockpileInventoryLimitIndex {
+    problem
+        .periods()
+        .iter()
+        .map(|period| {
+            period
+                .stockpile_capacities()
+                .iter()
+                .filter_map(|capacity| {
+                    capacity
+                        .max_reclaim_tonnage()
+                        .map(|limit| (capacity.stockpile_id().clone(), limit))
+                })
+                .collect::<BTreeMap<_, _>>()
+        })
+        .collect()
+}
+
+fn build_future_stockpile_inventory_limits(
+    stockpile_inventory_limits: &StockpileInventoryLimitIndex,
+) -> StockpileInventoryLimitIndex {
+    let mut future_limits =
+        vec![BTreeMap::<ScheduleStockpileId, f64>::new(); stockpile_inventory_limits.len()];
+    let mut next_limits = BTreeMap::<ScheduleStockpileId, f64>::new();
+    for period_index in (0..stockpile_inventory_limits.len()).rev() {
+        let mut period_limits = stockpile_inventory_limits[period_index].clone();
+        for (stockpile_id, next_limit) in &next_limits {
+            period_limits
+                .entry(stockpile_id.clone())
+                .and_modify(|limit| *limit = limit.min(*next_limit))
+                .or_insert(*next_limit);
+        }
+        next_limits = period_limits.clone();
+        future_limits[period_index] = period_limits;
+    }
+    future_limits
+}
+
+fn fits_stockpile_inventory_bounds(
+    period_index: usize,
+    inventory_delta_tonnage: f64,
+    stockpile_id: Option<&ScheduleStockpileId>,
+    stockpile_inventory_delta_by_period: &[BTreeMap<ScheduleStockpileId, f64>],
+    stockpile_reclaims_by_period: &[BTreeMap<ScheduleStockpileId, f64>],
+    stockpile_opening_inventory: &BTreeMap<ScheduleStockpileId, f64>,
+    stockpile_inventory_limits: &StockpileInventoryLimitIndex,
+    stockpile_reclaim_limits: &StockpileInventoryLimitIndex,
+) -> bool {
+    let Some(stockpile_id) = stockpile_id else {
+        return true;
+    };
+    let mut inventory = stockpile_opening_inventory
+        .get(stockpile_id)
+        .copied()
+        .unwrap_or(0.0);
+    for current_period_index in 0..stockpile_inventory_limits.len() {
+        inventory += stockpile_inventory_delta_by_period[current_period_index]
+            .get(stockpile_id)
+            .copied()
+            .unwrap_or(0.0);
+        if current_period_index == period_index {
+            inventory += inventory_delta_tonnage;
+        }
+        if inventory < -SCHEDULING_EPSILON {
+            return false;
+        }
+        if current_period_index >= period_index
+            && let Some(limit) = stockpile_inventory_limits[current_period_index].get(stockpile_id)
+            && inventory > *limit + SCHEDULING_EPSILON
+        {
+            return false;
+        }
+    }
+    if inventory_delta_tonnage < -SCHEDULING_EPSILON
+        && let Some(limit) = stockpile_reclaim_limits[period_index].get(stockpile_id)
+        && stockpile_reclaims_by_period[period_index]
+            .get(stockpile_id)
+            .copied()
+            .unwrap_or(0.0)
+            + inventory_delta_tonnage.abs()
+            > *limit + SCHEDULING_EPSILON
+    {
+        return false;
+    }
+    true
+}
+
+fn fits_effective_stockpile_bounds(
+    period_index: usize,
+    inventory_delta_tonnage: f64,
+    stockpile_id: Option<&ScheduleStockpileId>,
+    stockpile_inventory_by_id: &BTreeMap<ScheduleStockpileId, f64>,
+    stockpile_reclaims_by_period: &[BTreeMap<ScheduleStockpileId, f64>],
+    stockpile_future_inventory_limits: &StockpileInventoryLimitIndex,
+    stockpile_reclaim_limits: &StockpileInventoryLimitIndex,
+) -> bool {
+    let Some(stockpile_id) = stockpile_id else {
+        return true;
+    };
+    let Some(limit) = stockpile_future_inventory_limits[period_index].get(stockpile_id) else {
+        return false;
+    };
+    let updated_inventory = stockpile_inventory_by_id
+        .get(stockpile_id)
+        .copied()
+        .unwrap_or(0.0)
+        + inventory_delta_tonnage;
+    if updated_inventory < -SCHEDULING_EPSILON || updated_inventory > *limit + SCHEDULING_EPSILON {
+        return false;
+    }
+    if inventory_delta_tonnage < -SCHEDULING_EPSILON
+        && let Some(reclaim_limit) = stockpile_reclaim_limits[period_index].get(stockpile_id)
+        && stockpile_reclaims_by_period[period_index]
+            .get(stockpile_id)
+            .copied()
+            .unwrap_or(0.0)
+            + inventory_delta_tonnage.abs()
+            > *reclaim_limit + SCHEDULING_EPSILON
+    {
+        return false;
+    }
+    true
+}
+
+fn apply_stockpile_inventory_delta(
+    period_index: usize,
+    inventory_delta_tonnage: f64,
+    stockpile_id: Option<&ScheduleStockpileId>,
+    stockpile_inventory_delta_by_period: &mut [BTreeMap<ScheduleStockpileId, f64>],
+    direction: f64,
+) {
+    let Some(stockpile_id) = stockpile_id else {
+        return;
+    };
+    let updated_total = stockpile_inventory_delta_by_period[period_index]
+        .get(stockpile_id)
+        .copied()
+        .unwrap_or(0.0)
+        + direction * inventory_delta_tonnage;
+    if updated_total.abs() <= SCHEDULING_EPSILON {
+        stockpile_inventory_delta_by_period[period_index].remove(stockpile_id);
+    } else {
+        stockpile_inventory_delta_by_period[period_index]
+            .insert(stockpile_id.clone(), updated_total);
+    }
+}
+
+fn apply_stockpile_reclaim(
+    period_index: usize,
+    inventory_delta_tonnage: f64,
+    stockpile_id: Option<&ScheduleStockpileId>,
+    stockpile_reclaims_by_period: &mut [BTreeMap<ScheduleStockpileId, f64>],
+    direction: f64,
+) {
+    if inventory_delta_tonnage >= -SCHEDULING_EPSILON {
+        return;
+    }
+    let Some(stockpile_id) = stockpile_id else {
+        return;
+    };
+    let updated_total = stockpile_reclaims_by_period[period_index]
+        .get(stockpile_id)
+        .copied()
+        .unwrap_or(0.0)
+        + direction * inventory_delta_tonnage.abs();
+    if updated_total.abs() <= SCHEDULING_EPSILON {
+        stockpile_reclaims_by_period[period_index].remove(stockpile_id);
+    } else {
+        stockpile_reclaims_by_period[period_index].insert(stockpile_id.clone(), updated_total);
+    }
+}
+
+fn apply_stockpile_inventory(
+    stockpile_id: Option<&ScheduleStockpileId>,
+    inventory_delta_tonnage: f64,
+    stockpile_inventory_by_id: &mut BTreeMap<ScheduleStockpileId, f64>,
+    direction: f64,
+) {
+    let Some(stockpile_id) = stockpile_id else {
+        return;
+    };
+    let updated_inventory = stockpile_inventory_by_id
+        .get(stockpile_id)
+        .copied()
+        .unwrap_or(0.0)
+        + direction * inventory_delta_tonnage;
+    if updated_inventory.abs() <= SCHEDULING_EPSILON {
+        stockpile_inventory_by_id.remove(stockpile_id);
+    } else {
+        stockpile_inventory_by_id.insert(stockpile_id.clone(), updated_inventory);
+    }
 }
 
 fn fits_upper_bounds(
@@ -1610,6 +2353,17 @@ fn materialize_solution(
     solution: SearchState,
     period_resource_limits: &[BTreeMap<SchedulingResourceId, (Option<f64>, Option<f64>)>],
 ) -> SmallSchedulingSolution {
+    let stockpile_delta_by_period = solution.assignments.iter().fold(
+        vec![BTreeMap::<ScheduleStockpileId, f64>::new(); problem.periods().len()],
+        |mut indexed, assignment| {
+            if let Some(stockpile_id) = assignment.stockpile_id() {
+                *indexed[assignment.period_index()]
+                    .entry(stockpile_id.clone())
+                    .or_insert(0.0) += assignment.stockpile_inventory_delta_tonnage();
+            }
+            indexed
+        },
+    );
     let scheduled_unit_ids = solution
         .assignments
         .iter()
@@ -1623,31 +2377,84 @@ fn materialize_solution(
         .map(SchedulingUnit::unit_id)
         .cloned()
         .collect::<Vec<_>>();
+    let mut stockpile_inventory_by_id = index_stockpile_opening_inventory(problem);
     let periods = problem
         .periods()
         .iter()
         .enumerate()
-        .map(|(period_index, period)| SmallSchedulingPeriodSummary {
-            period_label: period.period_label().to_owned(),
-            assignment_count: solution
-                .assignments
+        .map(|(period_index, period)| {
+            let capacity_by_stockpile = period
+                .stockpile_capacities()
                 .iter()
-                .filter(|assignment| assignment.period_index() == period_index)
-                .count(),
-            resource_usage: period_resource_limits[period_index]
-                .iter()
-                .map(
-                    |(resource_id, (min_total, max_total))| SmallSchedulingResourceUsage {
-                        resource_id: resource_id.clone(),
-                        total: solution.usage_by_period[period_index]
-                            .get(resource_id)
-                            .copied()
-                            .unwrap_or(0.0),
-                        min_total: *min_total,
-                        max_total: *max_total,
-                    },
-                )
-                .collect(),
+                .map(|capacity| {
+                    (
+                        capacity.stockpile_id().clone(),
+                        capacity.max_inventory_tonnage(),
+                    )
+                })
+                .collect::<BTreeMap<_, _>>();
+            let stockpile_ids = stockpile_inventory_by_id
+                .keys()
+                .chain(stockpile_delta_by_period[period_index].keys())
+                .chain(capacity_by_stockpile.keys())
+                .cloned()
+                .collect::<BTreeSet<_>>();
+            let stockpile_usage = stockpile_ids
+                .into_iter()
+                .filter_map(|stockpile_id| {
+                    let opening_tonnage = stockpile_inventory_by_id
+                        .get(&stockpile_id)
+                        .copied()
+                        .unwrap_or(0.0);
+                    let inventory_delta_tonnage = stockpile_delta_by_period[period_index]
+                        .get(&stockpile_id)
+                        .copied()
+                        .unwrap_or(0.0);
+                    let closing_tonnage = opening_tonnage + inventory_delta_tonnage;
+                    stockpile_inventory_by_id.insert(stockpile_id.clone(), closing_tonnage);
+
+                    if opening_tonnage.abs() <= SCHEDULING_EPSILON
+                        && inventory_delta_tonnage.abs() <= SCHEDULING_EPSILON
+                        && !capacity_by_stockpile.contains_key(&stockpile_id)
+                    {
+                        None
+                    } else {
+                        let max_inventory_tonnage =
+                            capacity_by_stockpile.get(&stockpile_id).copied().flatten();
+                        Some(SmallSchedulingStockpileUsage {
+                            stockpile_id,
+                            opening_tonnage,
+                            inventory_delta_tonnage,
+                            closing_tonnage,
+                            max_inventory_tonnage,
+                        })
+                    }
+                })
+                .collect();
+
+            SmallSchedulingPeriodSummary {
+                period_label: period.period_label().to_owned(),
+                assignment_count: solution
+                    .assignments
+                    .iter()
+                    .filter(|assignment| assignment.period_index() == period_index)
+                    .count(),
+                resource_usage: period_resource_limits[period_index]
+                    .iter()
+                    .map(
+                        |(resource_id, (min_total, max_total))| SmallSchedulingResourceUsage {
+                            resource_id: resource_id.clone(),
+                            total: solution.usage_by_period[period_index]
+                                .get(resource_id)
+                                .copied()
+                                .unwrap_or(0.0),
+                            min_total: *min_total,
+                            max_total: *max_total,
+                        },
+                    )
+                    .collect(),
+                stockpile_usage,
+            }
         })
         .collect::<Vec<_>>();
 

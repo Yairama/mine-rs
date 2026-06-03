@@ -68,16 +68,18 @@ pub use schedule::{
 pub use scheduling_problem::{
     SchedulingObjectiveTerm, SchedulingPeriod, SchedulingProblem, SchedulingResourceBound,
     SchedulingResourceId, SchedulingResourceRequirement, SchedulingUnit, SchedulingUnitId,
+    destination_capacity_resource_id, stockpile_reclaim_capacity_resource_id,
 };
 pub use slope_templates::{
     SlopeAngleRule, VariableSlopeTemplate, derive_precedence_template_from_slope,
 };
 pub use small_scheduling::{
     SmallSchedulingAssignment, SmallSchedulingPeriodSummary, SmallSchedulingResourceUsage,
-    SmallSchedulingSolution, build_ready_frontier_long_term_schedule,
-    build_ready_frontier_schedule, build_target_period_seeded_long_term_schedule,
-    build_target_period_seeded_schedule, build_target_period_windowed_long_term_schedule,
-    build_target_period_windowed_schedule, solve_small_scheduling_problem,
+    SmallSchedulingSolution, SmallSchedulingStockpileUsage,
+    build_ready_frontier_long_term_schedule, build_ready_frontier_schedule,
+    build_target_period_seeded_long_term_schedule, build_target_period_seeded_schedule,
+    build_target_period_windowed_long_term_schedule, build_target_period_windowed_schedule,
+    solve_small_scheduling_problem,
 };
 pub use stockpile_policy::{
     LongTermStockpileDepositPolicy, LongTermStockpilePolicy, LongTermStockpileReclaimPolicy,

@@ -6,6 +6,8 @@ mod lp_bz_bound;
 mod lp_bz_lp_kernel;
 #[path = "../src/lp_bz_rounder.rs"]
 mod lp_bz_rounder;
+#[path = "../src/lp_bz_runtime_budget.rs"]
+mod lp_bz_runtime_budget;
 #[path = "../src/marvin_support.rs"]
 mod marvin_support;
 
@@ -24,7 +26,7 @@ use mine_sdk::{
 };
 
 #[test]
-fn marvin_adapter_returns_compact_summary_and_focused_limitation() {
+fn marvin_adapter_returns_compact_summary_and_real_focused_optimizer_limitation() {
     let phase_plan = sample_phase_plan();
     let scheduling_problem = sample_scheduling_problem();
     let marvin_problem = sample_marvin_problem();
@@ -52,13 +54,28 @@ fn marvin_adapter_returns_compact_summary_and_focused_limitation() {
         result.seeded_schedule.entries().len()
     );
     assert!(result.summary.lp_bz_round_repair.focused_round_repair);
-    assert!(result.summary.lp_bz_round_repair.local_optimization_skipped);
+    assert!(!result.summary.lp_bz_round_repair.local_optimization_skipped);
     assert_eq!(
         result
             .summary
             .lp_bz_round_repair
             .local_optimizer_strategy_label,
-        "skipped-focused-refresh-runtime"
+        "deterministic-adjacent-swap-plus-period-ejection-plus-precedence-chain-v8"
+    );
+    assert!(
+        result
+            .summary
+            .lp_bz_round_repair
+            .local_optimizer_executed_iteration_count
+            > 0
+    );
+    assert_eq!(
+        result
+            .summary
+            .lp_bz_round_repair
+            .local_optimizer_runtime_budget_contract
+            .execution_state,
+        "completed-within-budget"
     );
     assert_eq!(
         result.summary.lp_bz_lp_kernel.variable_count,
@@ -84,7 +101,7 @@ fn marvin_adapter_returns_compact_summary_and_focused_limitation() {
             .summary
             .limitations
             .iter()
-            .any(|limitation| { limitation.contains("not as a fully optimized LP/BZ candidate") })
+            .any(|limitation| { limitation.contains("optimized benchmark-side LP/BZ candidate") })
     );
 }
 

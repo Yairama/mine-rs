@@ -16,6 +16,7 @@ use mine_sdk::{
     derive_phase_design_from_nested_shells_from_map, generate_nested_shells_from_weight_map,
     generate_nested_shells_from_weight_scenarios, uniform_revenue_factors,
 };
+use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MinelibResourceRole {
@@ -32,6 +33,80 @@ pub struct NestedShellPhasePlanArtifacts {
 
 const REFERENCE_PERIOD_BENCH_AGGREGATION: &str = "reference-period-bench";
 const NESTED_SHELL_BENCH_AGGREGATION: &str = "nested-shell-bench";
+pub const MARVIN_PREFERRED_NESTED_SHELL_FACTOR_COUNT: usize = 7;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NestedShellAccessMode {
+    StrictSequential,
+}
+
+impl NestedShellAccessMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::StrictSequential => "strict-sequential",
+        }
+    }
+
+    pub fn nesting_rules(self) -> NestingAccessRules {
+        match self {
+            Self::StrictSequential => NestingAccessRules::strict_sequential(),
+        }
+    }
+}
+
+/// Contrato explícito de la familia nested-shell preferida para Marvin.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub struct MarvinPreferredNestedShellFamilyContract {
+    pub aggregation_strategy: String,
+    pub revenue_factor_count: usize,
+    pub revenue_factors: Vec<f64>,
+    pub shell_access_mode: NestedShellAccessMode,
+    pub realized_shell_count: Option<usize>,
+}
+
+impl MarvinPreferredNestedShellFamilyContract {
+    pub fn with_realized_shell_count(mut self, realized_shell_count: usize) -> Self {
+        self.realized_shell_count = Some(realized_shell_count);
+        self
+    }
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn build_marvin_preferred_nested_shell_family_contract(
+    factor_count: usize,
+) -> Result<MarvinPreferredNestedShellFamilyContract, mine_sdk::MineError> {
+    let revenue_factors = uniform_revenue_factors(factor_count)?;
+    Ok(MarvinPreferredNestedShellFamilyContract {
+        aggregation_strategy: NESTED_SHELL_BENCH_AGGREGATION.to_owned(),
+        revenue_factor_count: revenue_factors.len(),
+        revenue_factors,
+        shell_access_mode: NestedShellAccessMode::StrictSequential,
+        realized_shell_count: None,
+    })
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn realized_shell_count_from_phase_plan(phase_plan: &PushbackPlan) -> usize {
+    phase_plan
+        .phases
+        .iter()
+        .filter_map(|phase| phase.shell_index)
+        .collect::<BTreeSet<_>>()
+        .len()
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn build_marvin_preferred_nested_shell_family_contract_for_phase_plan(
+    factor_count: usize,
+    phase_plan: &PushbackPlan,
+) -> Result<MarvinPreferredNestedShellFamilyContract, mine_sdk::MineError> {
+    Ok(
+        build_marvin_preferred_nested_shell_family_contract(factor_count)?
+            .with_realized_shell_count(realized_shell_count_from_phase_plan(phase_plan)),
+    )
+}
 
 /// Metadatos del phase plan preferido para wiring de reportes.
 #[cfg_attr(not(test), allow(dead_code))]
@@ -39,6 +114,7 @@ pub struct PreferredPhasePlanMetadata {
     pub aggregation_strategy: String,
     pub nested_shell_primary: bool,
     pub unique_shell_count: Option<usize>,
+    pub marvin_nested_shell_family_contract: Option<MarvinPreferredNestedShellFamilyContract>,
     pub descriptive_note: String,
     pub limitations: Vec<String>,
 }
@@ -322,25 +398,34 @@ pub fn build_preferred_phase_plan_for_minelib_scheduling(
                 "Marvin nested-shell primary path requires a precedence graph",
             )
         })?;
-        let revenue_factors = uniform_revenue_factors(marvin_factor_count)?;
+        let preferred_shell_family =
+            build_marvin_preferred_nested_shell_family_contract(marvin_factor_count)?;
         let descriptive_note = format!(
-            "Marvin scheduling prefers a bounded {marvin_factor_count}-factor nested-shell × bench phase plan rebuilt from revenue/cost-aware factor scenarios with strict sequential shell access."
+            "Marvin scheduling prefers a bounded {}-factor nested-shell × bench phase plan rebuilt from revenue/cost-aware factor scenarios with {} shell access.",
+            preferred_shell_family.revenue_factor_count,
+            preferred_shell_family.shell_access_mode.label()
         );
         let shell_artifacts = build_marvin_phase_plan_from_revenue_factor_shells(
             model,
             precedence_graph,
-            &revenue_factors,
-            NestingAccessRules::strict_sequential(),
+            &preferred_shell_family.revenue_factors,
+            preferred_shell_family.shell_access_mode.nesting_rules(),
             &descriptive_note,
         )?;
         let limitations = shell_artifacts.phase_plan.limitations.clone();
+        let preferred_shell_family =
+            build_marvin_preferred_nested_shell_family_contract_for_phase_plan(
+                marvin_factor_count,
+                &shell_artifacts.phase_plan,
+            )?;
 
         return Ok(PreferredPhasePlanArtifacts {
             phase_plan: shell_artifacts.phase_plan,
             metadata: PreferredPhasePlanMetadata {
-                aggregation_strategy: NESTED_SHELL_BENCH_AGGREGATION.to_owned(),
+                aggregation_strategy: preferred_shell_family.aggregation_strategy.clone(),
                 nested_shell_primary: true,
-                unique_shell_count: Some(shell_artifacts.shell_set.unique_shell_count),
+                unique_shell_count: preferred_shell_family.realized_shell_count,
+                marvin_nested_shell_family_contract: Some(preferred_shell_family),
                 descriptive_note,
                 limitations,
             },
@@ -371,6 +456,7 @@ pub fn build_preferred_phase_plan_for_minelib_scheduling(
             aggregation_strategy: REFERENCE_PERIOD_BENCH_AGGREGATION.to_owned(),
             nested_shell_primary: false,
             unique_shell_count: None,
+            marvin_nested_shell_family_contract: None,
             descriptive_note,
             limitations,
         },

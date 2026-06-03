@@ -74,11 +74,14 @@ pub struct CrossValidationReport {
 pub enum CrossValidationEstimator {
     /// Ordinary kriging con variograma y vecindad explícitos.
     OrdinaryKriging {
+        /// Modelo de variograma usado para la estimación.
         variogram: VariogramModel,
+        /// Vecindad declarada para este estimador.
         neighborhood: SearchNeighborhood,
     },
     /// Inverse distance weighting.
     InverseDistanceWeighting {
+        /// Opciones de parametrización del IDW.
         options: InverseDistanceWeightingOptions,
     },
 }
@@ -132,7 +135,7 @@ pub fn cross_validate_leave_one_out(
         let estimated_value = match estimator {
             CrossValidationEstimator::OrdinaryKriging {
                 variogram,
-                neighborhood,
+                neighborhood: _,
             } => {
                 match estimate_ordinary_kriging(
                     target_sample.location,

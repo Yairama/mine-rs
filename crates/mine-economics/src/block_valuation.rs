@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use mine_core::{ColumnId, MineError};
+use mine_core::MineError;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -47,6 +47,10 @@ pub struct BlockDestinationValue {
     pub destination_id: DestinationId,
     /// NSR por tonelada en este destino.
     pub nsr_per_tonne: f64,
+    /// Costo de minado por tonelada incluido en el destino.
+    pub mining_cost_per_tonne: f64,
+    /// Costo downstream por tonelada posterior al minado.
+    pub downstream_cost_per_tonne: f64,
     /// Costo total por tonelada (mining + processing).
     pub total_cost_per_tonne: f64,
     /// Margen por tonelada (NSR - costo).
@@ -141,13 +145,17 @@ pub fn value_block_by_destinations(
 
         let nsr = compute_nsr(&nsr_inputs)?;
         let nsr_per_tonne = nsr.total_nsr_per_tonne;
-        let total_cost = dest.total_cost_per_tonne();
+        let mining_cost = dest.mining_cost_per_tonne();
+        let downstream_cost = dest.downstream_cost_per_tonne();
+        let total_cost = mining_cost + downstream_cost;
         let margin = nsr_per_tonne - total_cost;
         let block_value = margin * block.tonnage;
 
         results.push(BlockDestinationValue {
             destination_id: dest.id().clone(),
             nsr_per_tonne,
+            mining_cost_per_tonne: mining_cost,
+            downstream_cost_per_tonne: downstream_cost,
             total_cost_per_tonne: total_cost,
             margin_per_tonne: margin,
             block_value,
@@ -257,6 +265,9 @@ mod tests {
             .expect("mill should be found");
 
         let expected_nsr = 0.5 * 0.88 * 0.97 * 9000.0;
+        assert_eq!(mill_result.mining_cost_per_tonne, 2.0);
+        assert_eq!(mill_result.downstream_cost_per_tonne, 8.0);
+        assert_eq!(mill_result.total_cost_per_tonne, 10.0);
         let expected_margin = expected_nsr - 10.0;
         let expected_value = expected_margin * 2000.0;
 

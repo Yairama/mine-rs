@@ -17,14 +17,18 @@ use crate::lp_bz_lp_kernel::{
 };
 use crate::lp_bz_rounder::{
     build_target_period_seeded_schedule_from_lp_round_repair_v6_focused,
-    representative_period_by_block,
+    local_optimizer_runtime_was_skipped, representative_period_by_block,
+};
+use crate::lp_bz_runtime_budget::{
+    LpBzLocalOptimizerRuntimeBudgetContract, build_lp_bz_local_optimizer_runtime_budget_contract,
+    validate_lp_bz_local_optimizer_runtime_budget_contract,
 };
 use crate::marvin_support::{MarvinScheduleProblem, MarvinScheduleSolution};
 
 pub const MARVIN_FOCUSED_LP_BZ_ADAPTER_SCOPE: &str = "marvin-focused-lp-bz-adapter";
 
 const MARVIN_SCOPED_LIMITATION: &str = "This adapter is intentionally Marvin-scoped inside examples/marvin-benchmark; MineLib aliases may reuse the normalized Marvin contracts here, but this path must not be read as a generic LP/BZ adapter for every MineLib dataset yet.";
-const FOCUSED_ROUND_REPAIR_LIMITATION: &str = "The focused LP/BZ candidate comes from build_target_period_seeded_schedule_from_lp_round_repair_v6_focused, which intentionally skips the local optimization step (`skipped-focused-refresh-runtime`); treat it as a deterministic feasible seeded candidate, not as a fully optimized LP/BZ candidate.";
+const FOCUSED_ROUND_REPAIR_LIMITATION: &str = "The focused LP/BZ candidate comes from build_target_period_seeded_schedule_from_lp_round_repair_v6_focused, which now keeps the benchmark-side local optimizer on an explicit single-iteration deterministic guardrail; treat it as the optimized benchmark-side LP/BZ candidate while native solve comparability remains tracked separately.";
 
 #[derive(Debug)]
 pub struct MarvinLpBzAdapterResult {
@@ -78,6 +82,7 @@ pub struct MarvinLpBzAdapterRoundRepairSummary {
     pub rounder_strategy_label: String,
     pub focused_round_repair: bool,
     pub local_optimization_skipped: bool,
+    pub local_optimizer_runtime_budget_contract: LpBzLocalOptimizerRuntimeBudgetContract,
     pub local_optimizer_strategy_label: String,
     pub local_optimizer_termination_reason: String,
     pub local_optimizer_executed_iteration_count: usize,
@@ -131,8 +136,71 @@ pub fn run_marvin_focused_lp_bz_adapter(
         &lp_bz_lp_kernel_artifact,
     )?;
     let lp_bz_lp_solve_artifact = solve_lp_bz_lp_kernel_artifact(&lp_bz_lp_kernel_artifact)?;
+    let local_optimizer_runtime_budget_contract =
+        build_lp_bz_local_optimizer_runtime_budget_contract(
+            &round_repair_artifacts
+                .unit_round_repair
+                .local_optimizer_diagnostics
+                .strategy_label,
+            round_repair_artifacts
+                .unit_round_repair
+                .local_optimizer_diagnostics
+                .max_iteration_count,
+            round_repair_artifacts
+                .unit_round_repair
+                .local_optimizer_diagnostics
+                .executed_iteration_count,
+            &round_repair_artifacts
+                .unit_round_repair
+                .local_optimizer_diagnostics
+                .termination_reason,
+        );
+    validate_lp_bz_local_optimizer_runtime_budget_contract(
+        &local_optimizer_runtime_budget_contract,
+    )
+    .map_err(MineError::validation)?;
 
     let round_repair_limitations = vec![FOCUSED_ROUND_REPAIR_LIMITATION.to_owned()];
+    let lp_bz_round_repair = MarvinLpBzAdapterRoundRepairSummary {
+        rounder_strategy_label: "lp-bz-rounder-v6-focused-seeded".to_owned(),
+        focused_round_repair: true,
+        local_optimization_skipped: local_optimizer_runtime_was_skipped(
+            &round_repair_artifacts
+                .unit_round_repair
+                .local_optimizer_diagnostics
+                .termination_reason,
+        ),
+        local_optimizer_runtime_budget_contract,
+        local_optimizer_strategy_label: round_repair_artifacts
+            .unit_round_repair
+            .local_optimizer_diagnostics
+            .strategy_label
+            .clone(),
+        local_optimizer_termination_reason: round_repair_artifacts
+            .unit_round_repair
+            .local_optimizer_diagnostics
+            .termination_reason
+            .clone(),
+        local_optimizer_executed_iteration_count: round_repair_artifacts
+            .unit_round_repair
+            .local_optimizer_diagnostics
+            .executed_iteration_count,
+        local_optimizer_improving_move_count: round_repair_artifacts
+            .unit_round_repair
+            .local_improvement_move_count,
+        repaired_phase_target_count: round_repair_artifacts.repaired_phase_target_count,
+        repaired_unit_target_count: round_repair_artifacts
+            .unit_round_repair
+            .repaired_unit_target_count,
+        horizon_clamp_count: round_repair_artifacts.unit_round_repair.horizon_clamp_count,
+        phase_target_count: round_repair_artifacts.phase_target_period_by_phase.len(),
+        unit_target_count: round_repair_artifacts
+            .unit_round_repair
+            .target_period_by_unit
+            .len(),
+        limitations: round_repair_limitations.clone(),
+    };
+    validate_lp_bz_round_repair_runtime_budget_contract(&lp_bz_round_repair)?;
     let summary = MarvinLpBzAdapterSummary {
         scope_label: MARVIN_FOCUSED_LP_BZ_ADAPTER_SCOPE.to_owned(),
         lp_relaxation_assignment_count: lp_relaxation_solution.assignments.len(),
@@ -144,39 +212,7 @@ pub fn run_marvin_focused_lp_bz_adapter(
         lp_bz_bound: lp_bz_bound_artifacts.lp_bz_bound_artifact,
         lp_bz_lp_kernel: build_lp_kernel_summary(&lp_bz_lp_kernel_artifact),
         lp_bz_lp_solve: build_lp_solve_summary(&lp_bz_lp_solve_artifact),
-        lp_bz_round_repair: MarvinLpBzAdapterRoundRepairSummary {
-            rounder_strategy_label: "lp-bz-rounder-v6-focused-seeded".to_owned(),
-            focused_round_repair: true,
-            local_optimization_skipped: true,
-            local_optimizer_strategy_label: round_repair_artifacts
-                .unit_round_repair
-                .local_optimizer_diagnostics
-                .strategy_label
-                .clone(),
-            local_optimizer_termination_reason: round_repair_artifacts
-                .unit_round_repair
-                .local_optimizer_diagnostics
-                .termination_reason
-                .clone(),
-            local_optimizer_executed_iteration_count: round_repair_artifacts
-                .unit_round_repair
-                .local_optimizer_diagnostics
-                .executed_iteration_count,
-            local_optimizer_improving_move_count: round_repair_artifacts
-                .unit_round_repair
-                .local_improvement_move_count,
-            repaired_phase_target_count: round_repair_artifacts.repaired_phase_target_count,
-            repaired_unit_target_count: round_repair_artifacts
-                .unit_round_repair
-                .repaired_unit_target_count,
-            horizon_clamp_count: round_repair_artifacts.unit_round_repair.horizon_clamp_count,
-            phase_target_count: round_repair_artifacts.phase_target_period_by_phase.len(),
-            unit_target_count: round_repair_artifacts
-                .unit_round_repair
-                .target_period_by_unit
-                .len(),
-            limitations: round_repair_limitations.clone(),
-        },
+        lp_bz_round_repair,
         limitations: merge_limitations([
             vec![MARVIN_SCOPED_LIMITATION.to_owned()],
             round_repair_limitations,
@@ -229,6 +265,42 @@ fn merge_limitations(groups: impl IntoIterator<Item = Vec<String>>) -> Vec<Strin
         }
     }
     merged
+}
+
+fn validate_lp_bz_round_repair_runtime_budget_contract(
+    round_repair: &MarvinLpBzAdapterRoundRepairSummary,
+) -> Result<(), MineError> {
+    validate_lp_bz_local_optimizer_runtime_budget_contract(
+        &round_repair.local_optimizer_runtime_budget_contract,
+    )
+    .map_err(MineError::validation)?;
+    if round_repair
+        .local_optimizer_runtime_budget_contract
+        .strategy_label
+        != round_repair.local_optimizer_strategy_label
+        || round_repair
+            .local_optimizer_runtime_budget_contract
+            .executed_iteration_count
+            != round_repair.local_optimizer_executed_iteration_count
+        || round_repair
+            .local_optimizer_runtime_budget_contract
+            .termination_reason
+            != round_repair.local_optimizer_termination_reason
+    {
+        return Err(MineError::validation(
+            "Focused LP/BZ adapter round-repair summary must keep strategy, iterations and termination metadata aligned with the explicit runtime budget contract."
+                .to_owned(),
+        ));
+    }
+    if round_repair.local_optimization_skipped
+        != local_optimizer_runtime_was_skipped(&round_repair.local_optimizer_termination_reason)
+    {
+        return Err(MineError::validation(
+            "Focused LP/BZ adapter round-repair summary must derive `local_optimization_skipped` from the surfaced termination reason."
+                .to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 fn validate_lp_bz_artifact_coherence(
@@ -285,4 +357,50 @@ fn validate_lp_bz_artifact_coherence(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        MarvinLpBzAdapterRoundRepairSummary, validate_lp_bz_round_repair_runtime_budget_contract,
+    };
+    use crate::lp_bz_runtime_budget::build_lp_bz_local_optimizer_runtime_budget_contract;
+
+    #[test]
+    fn round_repair_runtime_budget_contract_accepts_budget_hit_without_skip_regression() {
+        let round_repair = MarvinLpBzAdapterRoundRepairSummary {
+            rounder_strategy_label: "lp-bz-rounder-v6-focused-seeded".to_owned(),
+            focused_round_repair: true,
+            local_optimization_skipped: false,
+            local_optimizer_runtime_budget_contract:
+                build_lp_bz_local_optimizer_runtime_budget_contract(
+                    "deterministic-adjacent-swap-plus-period-ejection-plus-precedence-chain-v8",
+                    12,
+                    12,
+                    "max-iterations-reached",
+                ),
+            local_optimizer_strategy_label:
+                "deterministic-adjacent-swap-plus-period-ejection-plus-precedence-chain-v8"
+                    .to_owned(),
+            local_optimizer_termination_reason: "max-iterations-reached".to_owned(),
+            local_optimizer_executed_iteration_count: 12,
+            local_optimizer_improving_move_count: 1,
+            repaired_phase_target_count: 4,
+            repaired_unit_target_count: 8,
+            horizon_clamp_count: 0,
+            phase_target_count: 4,
+            unit_target_count: 12,
+            limitations: Vec::new(),
+        };
+
+        validate_lp_bz_round_repair_runtime_budget_contract(&round_repair)
+            .expect("budget-hit runtime contract should validate");
+        assert_eq!(
+            round_repair
+                .local_optimizer_runtime_budget_contract
+                .execution_state,
+            "budget-hit"
+        );
+        assert!(!round_repair.local_optimization_skipped);
+    }
 }

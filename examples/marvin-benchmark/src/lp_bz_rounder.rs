@@ -133,10 +133,13 @@ struct LpPhaseFractionalSignal {
 const LOCAL_CHAIN_NEIGHBORHOOD_RADIUS: usize = 2;
 const LOCAL_PERIOD_EJECTION_NEIGHBORHOOD_RADIUS: usize = 3;
 const LOCAL_PERIOD_EJECTION_BRANCH_LIMIT: usize = 3;
+const FOCUSED_REFRESH_LOCAL_OPTIMIZER_MAX_ITERATIONS: usize = 1;
+pub const FOCUSED_REFRESH_SKIPPED_LOCAL_OPTIMIZER_REASON: &str = "skipped-focused-refresh-runtime";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LocalOptimizationMode {
     Enabled,
+    FocusedRefreshBudgeted,
     SkippedFocusedRefresh,
 }
 
@@ -322,8 +325,8 @@ pub fn build_target_period_seeded_schedule_from_lp_round_repair_v6(
     Ok((artifacts, schedule))
 }
 
-/// Variante focalizada: mantiene el round/repair topológico y el schedule seeded,
-/// pero evita el optimizador local v8 para que el refresh termine en este entorno.
+/// Variante focalizada: mantiene el round/repair topológico y el schedule seeded
+/// del refresh MR-187, pero ahora sí ejecuta el optimizador local v8 acotado.
 pub fn build_target_period_seeded_schedule_from_lp_round_repair_v6_focused(
     phase_plan: &PushbackPlan,
     scheduling_problem: &SchedulingProblem,
@@ -335,7 +338,7 @@ pub fn build_target_period_seeded_schedule_from_lp_round_repair_v6_focused(
         phase_plan,
         scheduling_problem,
         lp_solution,
-        LocalOptimizationMode::SkippedFocusedRefresh,
+        LocalOptimizationMode::FocusedRefreshBudgeted,
     )?;
     let schedule = build_target_period_seeded_long_term_schedule(
         scheduling_problem,
@@ -853,6 +856,19 @@ fn round_and_repair_unit_target_periods_with_local_optimization(
             &objective_score_by_unit,
             discount_factor,
             horizon_last_period,
+            None,
+        ),
+        LocalOptimizationMode::FocusedRefreshBudgeted => optimize_unit_target_periods_locally(
+            &mut target_period_by_unit,
+            &base_target_period_by_unit,
+            &predecessor_ids_by_unit,
+            &successor_unit_ids_by_unit,
+            &objective_score_by_unit,
+            discount_factor,
+            horizon_last_period,
+            Some(focused_refresh_local_optimizer_iteration_budget(
+                horizon_last_period,
+            )),
         ),
         LocalOptimizationMode::SkippedFocusedRefresh => {
             build_skipped_focused_local_optimizer_diagnostics()
@@ -871,12 +887,16 @@ fn round_and_repair_unit_target_periods_with_local_optimization(
 
 fn build_skipped_focused_local_optimizer_diagnostics() -> LpBzLocalOptimizerDiagnostics {
     LpBzLocalOptimizerDiagnostics {
-        strategy_label: "skipped-focused-refresh-runtime".to_owned(),
+        strategy_label: FOCUSED_REFRESH_SKIPPED_LOCAL_OPTIMIZER_REASON.to_owned(),
         max_iteration_count: 0,
         executed_iteration_count: 0,
         improving_move_count: 0,
-        termination_reason: "skipped-focused-refresh-runtime".to_owned(),
+        termination_reason: FOCUSED_REFRESH_SKIPPED_LOCAL_OPTIMIZER_REASON.to_owned(),
     }
+}
+
+pub fn local_optimizer_runtime_was_skipped(termination_reason: &str) -> bool {
+    termination_reason == FOCUSED_REFRESH_SKIPPED_LOCAL_OPTIMIZER_REASON
 }
 
 fn optimize_unit_target_periods_locally(
@@ -887,6 +907,7 @@ fn optimize_unit_target_periods_locally(
     objective_score_by_unit: &BTreeMap<SchedulingUnitId, f64>,
     discount_factor: f64,
     horizon_last_period: usize,
+    max_iteration_count_override: Option<usize>,
 ) -> LpBzLocalOptimizerDiagnostics {
     let strategy_label =
         "deterministic-adjacent-swap-plus-period-ejection-plus-precedence-chain-v8".to_owned();
@@ -899,10 +920,14 @@ fn optimize_unit_target_periods_locally(
             termination_reason: "disabled-insufficient-target-space".to_owned(),
         };
     }
-    let max_iterations = target_period_by_unit
+    let derived_max_iterations = target_period_by_unit
         .len()
         .saturating_mul(horizon_last_period.saturating_add(1))
         .saturating_mul(2)
+        .max(1);
+    let max_iterations = max_iteration_count_override
+        .unwrap_or(derived_max_iterations)
+        .min(derived_max_iterations)
         .max(1);
     let mut applied_move_count = 0usize;
     let mut executed_iteration_count = 0usize;
@@ -963,6 +988,13 @@ fn optimize_unit_target_periods_locally(
         improving_move_count: applied_move_count,
         termination_reason: "max-iterations-reached".to_owned(),
     }
+}
+
+fn focused_refresh_local_optimizer_iteration_budget(horizon_last_period: usize) -> usize {
+    horizon_last_period
+        .saturating_add(1)
+        .min(FOCUSED_REFRESH_LOCAL_OPTIMIZER_MAX_ITERATIONS)
+        .max(1)
 }
 
 fn find_best_local_swap_move(
@@ -2480,4 +2512,246 @@ fn phase_id_for_unit(unit_id: &SchedulingUnitId) -> &str {
 
 fn round_period_index(period_index: f64) -> usize {
     period_index.round().max(0.0) as usize
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_target_period_seeded_schedule_from_lp_round_repair_v6_focused;
+    use crate::marvin_support::{
+        MarvinScheduleAssignment, MarvinScheduleProblemKind, MarvinScheduleSolution,
+    };
+    use mine_sdk::{
+        Metadata, ModelId, NestingAccessRules, PhaseDesign, PushbackPlan, ScenarioId,
+        ScheduleDestinationCapacity, ScheduleDestinationId, SchedulingObjectiveTerm,
+        SchedulingPeriod, SchedulingProblem, SchedulingResourceBound, SchedulingResourceId,
+        SchedulingResourceRequirement, SchedulingUnit, SchedulingUnitId,
+    };
+
+    #[test]
+    fn focused_round_repair_executes_real_local_optimizer_runtime() {
+        let phase_plan = sample_phase_plan();
+        let scheduling_problem = sample_scheduling_problem();
+        let lp_solution = MarvinScheduleSolution {
+            kind: MarvinScheduleProblemKind::Pcpsp,
+            assignments: vec![
+                MarvinScheduleAssignment {
+                    linear_index: 0,
+                    destination_index: 0,
+                    period_index: 1,
+                    fraction: 1.0,
+                },
+                MarvinScheduleAssignment {
+                    linear_index: 1,
+                    destination_index: 0,
+                    period_index: 0,
+                    fraction: 1.0,
+                },
+            ],
+            unique_block_count: 2,
+        };
+
+        let (artifacts, schedule) =
+            build_target_period_seeded_schedule_from_lp_round_repair_v6_focused(
+                &phase_plan,
+                &scheduling_problem,
+                &lp_solution,
+                None,
+                Metadata::new(),
+            )
+            .expect("focused round/repair should build an optimized seeded schedule");
+
+        let diagnostics = &artifacts.unit_round_repair.local_optimizer_diagnostics;
+        assert_eq!(
+            diagnostics.strategy_label,
+            "deterministic-adjacent-swap-plus-period-ejection-plus-precedence-chain-v8"
+        );
+        assert!(diagnostics.max_iteration_count > 0);
+        assert!(diagnostics.executed_iteration_count > 0);
+        assert!(!super::local_optimizer_runtime_was_skipped(
+            &diagnostics.termination_reason
+        ));
+        assert!(artifacts.unit_round_repair.local_improvement_move_count > 0);
+        assert_eq!(
+            artifacts
+                .unit_round_repair
+                .target_period_by_unit
+                .get(&SchedulingUnitId::new("phase-a::part-0").expect("unit id should be valid")),
+            Some(&0)
+        );
+        assert_eq!(
+            artifacts
+                .unit_round_repair
+                .target_period_by_unit
+                .get(&SchedulingUnitId::new("phase-b::part-0").expect("unit id should be valid")),
+            Some(&1)
+        );
+        assert_eq!(schedule.entries().len(), 2);
+    }
+
+    #[test]
+    fn focused_round_repair_caps_iterations_to_two_period_sweeps() {
+        let phase_plan = sample_phase_plan();
+        let scheduling_problem = sample_scheduling_problem();
+        let lp_solution = MarvinScheduleSolution {
+            kind: MarvinScheduleProblemKind::Pcpsp,
+            assignments: vec![
+                MarvinScheduleAssignment {
+                    linear_index: 0,
+                    destination_index: 0,
+                    period_index: 1,
+                    fraction: 1.0,
+                },
+                MarvinScheduleAssignment {
+                    linear_index: 1,
+                    destination_index: 0,
+                    period_index: 0,
+                    fraction: 1.0,
+                },
+            ],
+            unique_block_count: 2,
+        };
+
+        let (artifacts, _) = build_target_period_seeded_schedule_from_lp_round_repair_v6_focused(
+            &phase_plan,
+            &scheduling_problem,
+            &lp_solution,
+            None,
+            Metadata::new(),
+        )
+        .expect("focused round/repair should build an optimized seeded schedule");
+
+        assert_eq!(
+            artifacts
+                .unit_round_repair
+                .local_optimizer_diagnostics
+                .max_iteration_count,
+            super::focused_refresh_local_optimizer_iteration_budget(1)
+        );
+    }
+
+    fn sample_phase_plan() -> PushbackPlan {
+        PushbackPlan {
+            phases: vec![
+                PhaseDesign {
+                    phase_id: "phase-a".to_owned(),
+                    pushback_index: 0,
+                    shell_index: Some(0),
+                    revenue_factor: Some(1.0),
+                    bench: Some(100),
+                    block_indices: vec![0],
+                    block_count: 1,
+                    total_tonnage: Some(1.0),
+                    predecessor_phase_ids: Vec::new(),
+                },
+                PhaseDesign {
+                    phase_id: "phase-b".to_owned(),
+                    pushback_index: 1,
+                    shell_index: Some(1),
+                    revenue_factor: Some(1.0),
+                    bench: Some(99),
+                    block_indices: vec![1],
+                    block_count: 1,
+                    total_tonnage: Some(1.0),
+                    predecessor_phase_ids: Vec::new(),
+                },
+            ],
+            phase_count: 2,
+            total_block_count: 2,
+            total_tonnage: Some(2.0),
+            nesting_rules: NestingAccessRules::strict_sequential(),
+            limitations: Vec::new(),
+        }
+    }
+
+    fn sample_scheduling_problem() -> SchedulingProblem {
+        let destination_id =
+            ScheduleDestinationId::new("mill").expect("destination should be valid");
+        let resource_id =
+            SchedulingResourceId::new("mine_tonnage").expect("resource should be valid");
+        let unit_a_id = SchedulingUnitId::new("phase-a::part-0").expect("unit id should be valid");
+        let unit_b_id = SchedulingUnitId::new("phase-b::part-0").expect("unit id should be valid");
+
+        SchedulingProblem::new(
+            ScenarioId::new("focused-rounder-test").expect("scenario should be valid"),
+            ModelId::new("focused-rounder-model").expect("model should be valid"),
+            vec![
+                SchedulingPeriod::new(
+                    "P1",
+                    vec![
+                        SchedulingResourceBound::new(resource_id.clone(), None, Some(10.0))
+                            .expect("resource bound should be valid"),
+                    ],
+                    vec![
+                        ScheduleDestinationCapacity::new(destination_id.clone(), Some(10.0))
+                            .expect("destination capacity should be valid"),
+                    ],
+                    vec![],
+                )
+                .expect("period should be valid"),
+                SchedulingPeriod::new(
+                    "P2",
+                    vec![
+                        SchedulingResourceBound::new(resource_id.clone(), None, Some(10.0))
+                            .expect("resource bound should be valid"),
+                    ],
+                    vec![
+                        ScheduleDestinationCapacity::new(destination_id.clone(), Some(10.0))
+                            .expect("destination capacity should be valid"),
+                    ],
+                    vec![],
+                )
+                .expect("period should be valid"),
+            ],
+            vec![
+                SchedulingUnit::new(
+                    unit_a_id.clone(),
+                    1.0,
+                    1,
+                    vec![],
+                    vec![destination_id.clone()],
+                    vec![],
+                    vec![0],
+                    Some(100),
+                    Some(0),
+                    Metadata::new(),
+                )
+                .expect("unit a should be valid"),
+                SchedulingUnit::new(
+                    unit_b_id.clone(),
+                    1.0,
+                    1,
+                    vec![],
+                    vec![destination_id.clone()],
+                    vec![],
+                    vec![1],
+                    Some(99),
+                    Some(1),
+                    Metadata::new(),
+                )
+                .expect("unit b should be valid"),
+            ],
+            vec![
+                SchedulingObjectiveTerm::new(
+                    unit_a_id.clone(),
+                    Some(destination_id.clone()),
+                    100.0,
+                )
+                .expect("objective term should be valid"),
+                SchedulingObjectiveTerm::new(unit_b_id.clone(), Some(destination_id.clone()), 10.0)
+                    .expect("objective term should be valid"),
+            ],
+            vec![
+                SchedulingResourceRequirement::new(unit_a_id, resource_id.clone(), None, 1.0)
+                    .expect("resource requirement should be valid"),
+                SchedulingResourceRequirement::new(unit_b_id, resource_id, None, 1.0)
+                    .expect("resource requirement should be valid"),
+            ],
+            vec![destination_id],
+            vec![],
+            0.10,
+            Metadata::new(),
+            vec![],
+        )
+        .expect("scheduling problem should be valid")
+    }
 }

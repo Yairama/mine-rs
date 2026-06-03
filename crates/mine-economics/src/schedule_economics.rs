@@ -13,15 +13,40 @@ use serde::{Deserialize, Serialize};
 use crate::{
     DestinationAssumptionSet, DestinationAssumptions, DestinationCapacity, DestinationRecovery,
     EconomicBlockModel, EconomicBlockModelConfig, PeriodCashflowInput, evaluate_scenario_cashflow,
+    scheduling_problem_adapter::{
+        StagedStockpileReclaimPolicy, build_representable_staged_parcels,
+    },
+    stage_pushback_plan_for_stockpile_readiness,
 };
 
 #[derive(Debug, Clone)]
-struct PhaseEconomicSummary {
-    total_tonnage: f64,
-    revenue: f64,
-    cost: f64,
-    destination_tonnage: BTreeMap<String, f64>,
-    payable_metal: BTreeMap<String, f64>,
+pub(crate) struct PhaseEconomicSummary {
+    pub(crate) total_tonnage: f64,
+    pub(crate) revenue: f64,
+    pub(crate) cost: f64,
+    pub(crate) destination_tonnage: BTreeMap<String, f64>,
+    pub(crate) payable_metal: BTreeMap<String, f64>,
+}
+
+pub(crate) fn build_grade_column_slices<'a>(
+    economic_model: &'a EconomicBlockModel,
+) -> Result<BTreeMap<String, &'a [f64]>, MineError> {
+    economic_model
+        .grade_columns()
+        .iter()
+        .map(|column| {
+            let data = match economic_model.model().column(column) {
+                Some(ColumnData::Floats(values)) => Ok(values.as_slice()),
+                _ => Err(MineError::Economics {
+                    message: format!(
+                        "economic grade column `{}` is missing or not Float in the block model",
+                        column.as_str()
+                    ),
+                }),
+            }?;
+            Ok((column.as_str().to_owned(), data))
+        })
+        .collect::<Result<BTreeMap<_, _>, MineError>>()
 }
 
 /// KPIs económicos agregados para un periodo del schedule.
@@ -129,7 +154,29 @@ pub fn evaluate_long_term_schedule_economics(
     economic_model: &EconomicBlockModel,
     discount_rate_per_period: f64,
 ) -> Result<LongTermScheduleEconomicsReport, MineError> {
-    let phase_summaries = build_phase_economic_summaries(phase_plan, economic_model)?;
+    evaluate_long_term_schedule_economics_with_reclaim_policy(
+        schedule,
+        phase_plan,
+        economic_model,
+        discount_rate_per_period,
+        None,
+    )
+}
+
+/// Variante explícita de la evaluación económica que consume la misma policy de reclaim staged
+/// usada al materializar el `SchedulingProblem`.
+pub fn evaluate_long_term_schedule_economics_with_reclaim_policy(
+    schedule: &LongTermSchedule,
+    phase_plan: &PushbackPlan,
+    economic_model: &EconomicBlockModel,
+    discount_rate_per_period: f64,
+    reclaim_policy: Option<&StagedStockpileReclaimPolicy>,
+) -> Result<LongTermScheduleEconomicsReport, MineError> {
+    let phase_summaries = build_phase_economic_summaries_with_reclaim_policy(
+        phase_plan,
+        economic_model,
+        reclaim_policy,
+    )?;
     let scenario = schedule_to_scenario(schedule)?;
 
     let mut scheduled_phase_tonnage = BTreeMap::<String, f64>::new();
@@ -330,9 +377,10 @@ pub fn summarize_long_term_schedule_risk(
     })
 }
 
-fn build_phase_economic_summaries(
+pub(crate) fn build_phase_economic_summaries_with_reclaim_policy(
     phase_plan: &PushbackPlan,
     economic_model: &EconomicBlockModel,
+    reclaim_policy: Option<&StagedStockpileReclaimPolicy>,
 ) -> Result<BTreeMap<String, PhaseEconomicSummary>, MineError> {
     let summary_by_linear_index = economic_model
         .block_summaries()
@@ -340,108 +388,71 @@ fn build_phase_economic_summaries(
         .map(|summary| (summary.linear_index, summary))
         .collect::<BTreeMap<_, _>>();
     let row_by_linear_index = build_row_index_map(economic_model)?;
-    let grade_columns = economic_model
-        .grade_columns()
-        .iter()
-        .map(|column| {
-            let data = match economic_model.model().column(column) {
-                Some(ColumnData::Floats(values)) => Ok(values.as_slice()),
-                _ => Err(MineError::Economics {
-                    message: format!(
-                        "economic grade column `{}` is missing or not Float in the block model",
-                        column.as_str()
-                    ),
-                }),
-            }?;
-            Ok((column.as_str().to_owned(), data))
-        })
-        .collect::<Result<BTreeMap<_, _>, MineError>>()?;
+    let grade_columns = build_grade_column_slices(economic_model)?;
+    let staged_phase_plan =
+        stage_pushback_plan_for_stockpile_readiness(phase_plan, economic_model)?;
+    let representable_staged_parcels =
+        build_representable_staged_parcels(&staged_phase_plan, economic_model, reclaim_policy)?;
 
-    phase_plan
+    let mut summaries = phase_plan
         .phases
         .iter()
         .map(|phase| {
-            let mut total_tonnage = 0.0;
-            let mut revenue = 0.0;
-            let mut cost = 0.0;
-            let mut destination_tonnage = BTreeMap::<String, f64>::new();
-            let mut payable_metal = BTreeMap::<String, f64>::new();
-
-            for &linear_index in &phase.block_indices {
-                let summary = summary_by_linear_index.get(&linear_index).copied().ok_or_else(|| {
-                    MineError::Economics {
-                        message: format!(
-                            "phase `{}` references block `{linear_index}` that is missing from the economic block model",
-                            phase.phase_id
-                        ),
-                    }
-                })?;
-                let destination = economic_model
-                    .destinations()
-                    .get(&summary.best_destination_id)
-                    .ok_or_else(|| MineError::Economics {
-                        message: format!(
-                            "destination `{}` is missing from the economic assumptions",
-                            summary.best_destination_id.as_str()
-                        ),
-                    })?;
-                let row_index =
-                    row_by_linear_index
-                        .get(&linear_index)
-                        .copied()
-                        .ok_or_else(|| MineError::Economics {
-                            message: format!(
-                                "block `{linear_index}` cannot be mapped back to a materialized row"
-                            ),
-                        })?;
-
-                total_tonnage += summary.tonnage;
-                revenue += summary.nsr_per_tonne * summary.tonnage;
-                cost += (summary.nsr_per_tonne - summary.margin_per_tonne) * summary.tonnage;
-                *destination_tonnage
-                    .entry(summary.best_destination_id.as_str().to_owned())
-                    .or_insert(0.0) += summary.tonnage;
-
-                for recovery in destination.recoveries() {
-                    let metal_key = recovery.metal_column().as_str();
-                    let payability = destination
-                        .payabilities()
-                        .iter()
-                        .find(|payability| payability.metal_column() == recovery.metal_column())
-                        .map(|payability| payability.payability_fraction())
-                        .unwrap_or(1.0);
-                    let grades = grade_columns.get(metal_key).ok_or_else(|| MineError::Economics {
-                        message: format!(
-                            "grade column `{metal_key}` required by destination `{}` is missing from the economic block model",
-                            destination.id().as_str()
-                        ),
-                    })?;
-                    let grade = grades.get(row_index).copied().ok_or_else(|| MineError::Economics {
-                        message: format!(
-                            "grade column `{metal_key}` is missing row `{row_index}` required for block `{linear_index}`"
-                        ),
-                    })?;
-
-                    *payable_metal.entry(metal_key.to_owned()).or_insert(0.0) +=
-                        summary.tonnage * grade * recovery.recovery_fraction() * payability;
-                }
-            }
-
             Ok((
                 phase.phase_id.clone(),
-                PhaseEconomicSummary {
-                    total_tonnage,
-                    revenue,
-                    cost,
-                    destination_tonnage,
-                    payable_metal,
-                },
+                summarize_block_indices(
+                    &phase.phase_id,
+                    &phase.block_indices,
+                    economic_model,
+                    &summary_by_linear_index,
+                    &row_by_linear_index,
+                    &grade_columns,
+                )?,
             ))
         })
-        .collect()
+        .collect::<Result<BTreeMap<_, _>, MineError>>()?;
+
+    summaries.extend(
+        staged_phase_plan
+            .direct_phase_refinements
+            .iter()
+            .map(|phase| {
+                (
+                    phase.phase_id.clone(),
+                    PhaseEconomicSummary {
+                        total_tonnage: phase.total_tonnage,
+                        revenue: phase.revenue,
+                        cost: phase.cost,
+                        destination_tonnage: BTreeMap::from([(
+                            phase.destination_id.as_str().to_owned(),
+                            phase.total_tonnage,
+                        )]),
+                        payable_metal: phase.payable_metal.clone(),
+                    },
+                )
+            }),
+    );
+
+    for parcel in representable_staged_parcels {
+        summaries.insert(
+            parcel.staged_parcel_id.clone(),
+            PhaseEconomicSummary {
+                total_tonnage: parcel.total_tonnage,
+                revenue: parcel.revenue,
+                cost: parcel.mining_cost_carryover + parcel.downstream_cost,
+                destination_tonnage: BTreeMap::from([(
+                    parcel.destination_id.as_str().to_owned(),
+                    parcel.total_tonnage,
+                )]),
+                payable_metal: parcel.payable_metal,
+            },
+        );
+    }
+
+    Ok(summaries)
 }
 
-fn build_row_index_map(
+pub(crate) fn build_row_index_map(
     economic_model: &EconomicBlockModel,
 ) -> Result<BTreeMap<usize, usize>, MineError> {
     let mut row_by_linear_index = BTreeMap::new();
@@ -450,6 +461,88 @@ fn build_row_index_map(
         row_by_linear_index.insert(linear_index, row_index);
     }
     Ok(row_by_linear_index)
+}
+
+pub(crate) fn summarize_block_indices(
+    phase_id: &str,
+    block_indices: &[usize],
+    economic_model: &EconomicBlockModel,
+    summary_by_linear_index: &BTreeMap<usize, &crate::BlockEconomicSummary>,
+    row_by_linear_index: &BTreeMap<usize, usize>,
+    grade_columns: &BTreeMap<String, &[f64]>,
+) -> Result<PhaseEconomicSummary, MineError> {
+    let mut total_tonnage = 0.0;
+    let mut revenue = 0.0;
+    let mut cost = 0.0;
+    let mut destination_tonnage = BTreeMap::<String, f64>::new();
+    let mut payable_metal = BTreeMap::<String, f64>::new();
+
+    for &linear_index in block_indices {
+        let summary = summary_by_linear_index
+            .get(&linear_index)
+            .copied()
+            .ok_or_else(|| MineError::Economics {
+                message: format!(
+                    "phase `{phase_id}` references block `{linear_index}` that is missing from the economic block model"
+                ),
+            })?;
+        let destination = economic_model
+            .destinations()
+            .get(&summary.best_destination_id)
+            .ok_or_else(|| MineError::Economics {
+                message: format!(
+                    "destination `{}` is missing from the economic assumptions",
+                    summary.best_destination_id.as_str()
+                ),
+            })?;
+        let row_index = row_by_linear_index
+            .get(&linear_index)
+            .copied()
+            .ok_or_else(|| MineError::Economics {
+                message: format!(
+                    "block `{linear_index}` cannot be mapped back to a materialized row"
+                ),
+            })?;
+
+        total_tonnage += summary.tonnage;
+        revenue += summary.nsr_per_tonne * summary.tonnage;
+        cost += (summary.nsr_per_tonne - summary.margin_per_tonne) * summary.tonnage;
+        *destination_tonnage
+            .entry(summary.best_destination_id.as_str().to_owned())
+            .or_insert(0.0) += summary.tonnage;
+
+        for recovery in destination.recoveries() {
+            let metal_key = recovery.metal_column().as_str();
+            let payability = destination
+                .payabilities()
+                .iter()
+                .find(|payability| payability.metal_column() == recovery.metal_column())
+                .map(|payability| payability.payability_fraction())
+                .unwrap_or(1.0);
+            let grades = grade_columns.get(metal_key).ok_or_else(|| MineError::Economics {
+                message: format!(
+                    "grade column `{metal_key}` required by destination `{}` is missing from the economic block model",
+                    destination.id().as_str()
+                ),
+            })?;
+            let grade = grades.get(row_index).copied().ok_or_else(|| MineError::Economics {
+                message: format!(
+                    "grade column `{metal_key}` is missing row `{row_index}` required for block `{linear_index}`"
+                ),
+            })?;
+
+            *payable_metal.entry(metal_key.to_owned()).or_insert(0.0) +=
+                summary.tonnage * grade * recovery.recovery_fraction() * payability;
+        }
+    }
+
+    Ok(PhaseEconomicSummary {
+        total_tonnage,
+        revenue,
+        cost,
+        destination_tonnage,
+        payable_metal,
+    })
 }
 
 fn schedule_to_scenario(schedule: &LongTermSchedule) -> Result<MiningScenario, MineError> {

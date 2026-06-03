@@ -318,7 +318,9 @@ pub fn evaluate_long_term_schedule_material_flows(
         let mut stockpile_reclaims = BTreeMap::<String, f64>::new();
 
         for entry in &period_entries {
-            mined_tonnage += entry.tonnage();
+            if entry.reclaim_stockpile_id().is_none() {
+                mined_tonnage += entry.tonnage();
+            }
             if let Some(destination_id) = entry.destination_id() {
                 *destination_tonnage
                     .entry(destination_id.as_str().to_owned())
@@ -348,7 +350,7 @@ pub fn evaluate_long_term_schedule_material_flows(
                     limit_value: Some(max_mine_tonnage),
                     observed_value: Some(mined_tonnage),
                     message: format!(
-                        "period `{period_label}` moves {mined_tonnage} t, exceeding mine capacity {max_mine_tonnage} t"
+                        "period `{period_label}` mines {mined_tonnage} t, exceeding mine capacity {max_mine_tonnage} t"
                     ),
                 });
             }
@@ -587,11 +589,9 @@ impl LongTermScheduleEntry {
                 "stockpile reclaim entries require a destination_id",
             ));
         }
-        if reclaim_stockpile_id.is_some()
-            && (phase_id.is_some() || shell_index.is_some() || bench.is_some())
-        {
+        if reclaim_stockpile_id.is_some() && (shell_index.is_some() || bench.is_some()) {
             return Err(MineError::validation(
-                "stockpile reclaim entries must not declare phase_id, shell_index or bench",
+                "stockpile reclaim entries must not declare shell_index or bench",
             ));
         }
 

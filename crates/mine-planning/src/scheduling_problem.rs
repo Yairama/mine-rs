@@ -18,7 +18,7 @@
 //!   *Optimized Open Pit Mine Design, Pushbacks and the Gap Problem — A Review*.
 //!   <https://doi.org/10.1134/S1062739114030132>
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use mine_core::{Metadata, MineError, ModelId, ScenarioId};
 use serde::{Deserialize, Serialize};
@@ -55,6 +55,18 @@ fn validate_optional_positive(
         return Err(MineError::invalid_parameter(
             parameter,
             "must be finite and greater than zero when provided",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_optional_finite(parameter: &'static str, value: Option<f64>) -> Result<(), MineError> {
+    if let Some(value) = value
+        && !value.is_finite()
+    {
+        return Err(MineError::invalid_parameter(
+            parameter,
+            "must be finite when provided",
         ));
     }
     Ok(())
@@ -124,6 +136,20 @@ impl std::fmt::Display for SchedulingResourceId {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(self.as_str())
     }
+}
+
+/// Recurso agregado que limita capacidad específica por destino.
+pub fn destination_capacity_resource_id(
+    destination_id: &ScheduleDestinationId,
+) -> Result<SchedulingResourceId, MineError> {
+    SchedulingResourceId::new(format!("destination_capacity::{destination_id}"))
+}
+
+/// Recurso agregado que limita reclaim/throughput de un stockpile.
+pub fn stockpile_reclaim_capacity_resource_id(
+    stockpile_id: &ScheduleStockpileId,
+) -> Result<SchedulingResourceId, MineError> {
+    SchedulingResourceId::new(format!("stockpile_reclaim_capacity::{stockpile_id}"))
 }
 
 /// Cotas inferior/superior de un recurso dentro de un periodo.
@@ -288,6 +314,8 @@ pub struct SchedulingUnit {
     predecessor_unit_ids: Vec<SchedulingUnitId>,
     eligible_destination_ids: Vec<ScheduleDestinationId>,
     eligible_stockpile_ids: Vec<ScheduleStockpileId>,
+    #[serde(default)]
+    stockpile_inventory_delta_tonnage: Option<f64>,
     block_indices: Vec<usize>,
     bench: Option<i64>,
     shell_index: Option<usize>,
@@ -353,6 +381,7 @@ impl SchedulingUnit {
             predecessor_unit_ids,
             eligible_destination_ids,
             eligible_stockpile_ids,
+            stockpile_inventory_delta_tonnage: None,
             block_indices,
             bench,
             shell_index,
@@ -421,6 +450,53 @@ impl SchedulingUnit {
     #[must_use]
     pub fn eligible_stockpile_ids(&self) -> &[ScheduleStockpileId] {
         &self.eligible_stockpile_ids
+    }
+
+    /// Delta explícito de inventario al aplicar un movimiento de stockpile.
+    ///
+    /// Valores positivos representan depósito hacia stockpile. Valores negativos
+    /// representan reclaim desde stockpile hacia un destino final.
+    #[must_use]
+    pub const fn stockpile_inventory_delta_tonnage(&self) -> Option<f64> {
+        self.stockpile_inventory_delta_tonnage
+    }
+
+    /// Delta efectivo de inventario para el movimiento de stockpile de la unidad.
+    #[must_use]
+    pub fn effective_stockpile_inventory_delta_tonnage(&self) -> f64 {
+        if self.eligible_stockpile_ids.is_empty() {
+            0.0
+        } else {
+            self.stockpile_inventory_delta_tonnage
+                .unwrap_or(self.tonnage)
+        }
+    }
+
+    /// Indica si la unidad representa reclaim desde un stockpile.
+    #[must_use]
+    pub fn is_stockpile_reclaim(&self) -> bool {
+        !self.eligible_stockpile_ids.is_empty()
+            && self.effective_stockpile_inventory_delta_tonnage() < 0.0
+    }
+
+    /// Tonelaje positivo de reclaim cuando la unidad representa descarga desde stockpile.
+    #[must_use]
+    pub fn stockpile_reclaim_tonnage(&self) -> Option<f64> {
+        self.is_stockpile_reclaim()
+            .then_some(-self.effective_stockpile_inventory_delta_tonnage())
+    }
+
+    /// Fija un delta explícito de inventario para un movimiento de stockpile.
+    pub fn with_stockpile_inventory_delta_tonnage(
+        mut self,
+        stockpile_inventory_delta_tonnage: Option<f64>,
+    ) -> Result<Self, MineError> {
+        validate_optional_finite(
+            "stockpile_inventory_delta_tonnage",
+            stockpile_inventory_delta_tonnage,
+        )?;
+        self.stockpile_inventory_delta_tonnage = stockpile_inventory_delta_tonnage;
+        Ok(self)
     }
 
     /// Índices lineales de bloques cuando la unidad preserva membresía.
@@ -632,6 +708,10 @@ impl SchedulingProblem {
             .map(LongTermScheduleStockpile::stockpile_id)
             .cloned()
             .collect::<BTreeSet<_>>();
+        let declared_stockpiles_by_id = stockpiles
+            .iter()
+            .map(|stockpile| (stockpile.stockpile_id().clone(), stockpile))
+            .collect::<BTreeMap<_, _>>();
         let declared_unit_ids = units
             .iter()
             .map(SchedulingUnit::unit_id)
@@ -704,6 +784,7 @@ impl SchedulingProblem {
                 }
             }
         }
+        validate_stockpile_deposit_contract(&periods, &units, &declared_stockpiles_by_id)?;
 
         for objective_term in &objective_terms {
             validate_term_scope(
@@ -900,6 +981,80 @@ fn validate_term_scope(
                 "{label} for unit `{unit_id}` references destination `{destination_id}` outside its eligible destination set"
             ),
         });
+    }
+    Ok(())
+}
+
+fn validate_stockpile_deposit_contract(
+    periods: &[SchedulingPeriod],
+    units: &[SchedulingUnit],
+    stockpiles_by_id: &BTreeMap<ScheduleStockpileId, &LongTermScheduleStockpile>,
+) -> Result<(), MineError> {
+    for unit in units {
+        validate_optional_finite(
+            "stockpile_inventory_delta_tonnage",
+            unit.stockpile_inventory_delta_tonnage(),
+        )?;
+        if unit.stockpile_inventory_delta_tonnage().is_some()
+            && unit.eligible_stockpile_ids().is_empty()
+        {
+            return Err(MineError::Validation {
+                message: format!(
+                    "unit `{}` declares stockpile_inventory_delta_tonnage without any eligible stockpile routing",
+                    unit.unit_id()
+                ),
+            });
+        }
+        if unit.effective_stockpile_inventory_delta_tonnage() < 0.0
+            && unit.eligible_destination_ids().is_empty()
+        {
+            return Err(MineError::Validation {
+                message: format!(
+                    "unit `{}` declares reclaim inventory delta without any eligible destination routing",
+                    unit.unit_id()
+                ),
+            });
+        }
+    }
+
+    let referenced_stockpile_ids = units
+        .iter()
+        .flat_map(SchedulingUnit::eligible_stockpile_ids)
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    for stockpile_id in referenced_stockpile_ids {
+        let stockpile = stockpiles_by_id
+            .get(&stockpile_id)
+            .copied()
+            .expect("validated stockpile should exist");
+        for period in periods {
+            let capacity = period
+                .stockpile_capacities()
+                .iter()
+                .find(|capacity| capacity.stockpile_id() == &stockpile_id)
+                .ok_or_else(|| MineError::Validation {
+                    message: format!(
+                        "stockpile routing for `{stockpile_id}` requires an explicit stockpile capacity in period `{}`",
+                        period.period_label()
+                    ),
+                })?;
+            let max_inventory_tonnage =
+                capacity.max_inventory_tonnage().ok_or_else(|| MineError::Validation {
+                    message: format!(
+                        "stockpile routing for `{stockpile_id}` requires max_inventory_tonnage in period `{}`",
+                        period.period_label()
+                    ),
+                })?;
+            if stockpile.opening_tonnage() > max_inventory_tonnage + 1.0e-9 {
+                return Err(MineError::Validation {
+                    message: format!(
+                        "stockpile routing for `{stockpile_id}` starts at {} t, exceeding inventory capacity {max_inventory_tonnage} t in period `{}`",
+                        stockpile.opening_tonnage(),
+                        period.period_label()
+                    ),
+                });
+            }
+        }
     }
     Ok(())
 }

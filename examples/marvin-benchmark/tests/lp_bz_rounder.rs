@@ -88,7 +88,7 @@ fn lp_guided_round_repair_is_deterministic_and_precedence_feasible() {
 }
 
 #[test]
-fn focused_round_repair_skips_local_optimizer_but_preserves_feasible_seeded_schedule() {
+fn focused_round_repair_executes_local_optimizer_and_preserves_feasible_seeded_schedule() {
     let phase_plan = sample_phase_plan(true);
     let scheduling_problem = sample_scheduling_problem(true);
     let lp_solution = sample_lp_solution(&[(10, 2.4), (20, 0.2)]);
@@ -108,23 +108,15 @@ fn focused_round_repair_skips_local_optimizer_but_preserves_feasible_seeded_sche
             .unit_round_repair
             .local_optimizer_diagnostics
             .strategy_label,
-        "skipped-focused-refresh-runtime"
+        "deterministic-adjacent-swap-plus-period-ejection-plus-precedence-chain-v8"
     );
-    assert_eq!(
+    assert!(
         artifacts
             .unit_round_repair
             .local_optimizer_diagnostics
-            .termination_reason,
-        "skipped-focused-refresh-runtime"
+            .executed_iteration_count
+            > 0
     );
-    assert_eq!(
-        artifacts
-            .unit_round_repair
-            .local_optimizer_diagnostics
-            .executed_iteration_count,
-        0
-    );
-    assert_eq!(artifacts.unit_round_repair.local_improvement_move_count, 0);
     assert_precedence_feasible_unit_targets(
         &scheduling_problem,
         &artifacts.unit_round_repair.target_period_by_unit,

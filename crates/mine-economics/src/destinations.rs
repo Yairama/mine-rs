@@ -251,6 +251,16 @@ impl DestinationAssumptions {
         self.processing_cost_per_tonne
     }
 
+    /// Costo downstream posterior al minado por tonelada.
+    ///
+    /// En el contrato actual coincide con `processing_cost_per_tonne`, de modo que
+    /// reclaim/direct-feed pueda separar el costo ya incurrido de minado del costo
+    /// específico del destino final.
+    #[must_use]
+    pub const fn downstream_cost_per_tonne(&self) -> f64 {
+        self.processing_cost_per_tonne
+    }
+
     /// Recoveries por metal.
     #[must_use]
     pub fn recoveries(&self) -> &[DestinationRecovery] {
@@ -441,6 +451,7 @@ mod tests {
         assert_eq!(found.kind(), DestinationKind::Mill);
         assert_eq!(found.mining_cost_per_tonne(), 2.0);
         assert_eq!(found.processing_cost_per_tonne(), 8.0);
+        assert_eq!(found.downstream_cost_per_tonne(), 8.0);
         assert_eq!(found.total_cost_per_tonne(), 10.0);
     }
 

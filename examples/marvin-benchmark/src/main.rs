@@ -12,6 +12,7 @@ mod lp_bz_adapter;
 mod lp_bz_bound;
 mod lp_bz_lp_kernel;
 mod lp_bz_rounder;
+mod lp_bz_runtime_budget;
 mod marvin_support;
 mod minelib_scheduling_support;
 mod pushback_bench_localized_cut_support;
@@ -62,6 +63,7 @@ use mine_sdk::{
 };
 use minelib_scheduling_support::{
     build_linear_index_float_lookup, build_marvin_phase_plan_from_revenue_factor_shells,
+    build_marvin_preferred_nested_shell_family_contract_for_phase_plan,
 };
 use pushback_bench_localized_cut_support::{
     MARVIN_MR187_PUSHBACK_BENCH_LOCALIZED_CUT_DEFAULT_BUILD_CONFIG,
@@ -69,7 +71,11 @@ use pushback_bench_localized_cut_support::{
     PushbackBenchLocalizedCutBuildArtifacts, PushbackBenchLocalizedCutBuildConfig,
     PushbackBenchLocalizedCutFrontProgression, PushbackBenchLocalizedCutPredecessorLinkPolicy,
     PushbackBenchLocalizedCutRefinementDiagnostics,
+    PushbackBenchLocalizedCutUnitFamilyTraceability,
+    build_promoted_pushback_bench_localized_cut_unit_family_traceability,
     build_pushback_bench_localized_cut_benchmark_artifacts,
+    format_promoted_lp_bz_family_status_summary,
+    format_promoted_pushback_bench_localized_cut_input_aggregation_gap_summary,
 };
 use serde::Serialize;
 
@@ -111,6 +117,7 @@ const SHAPE_GATED_FRONT_PROGRESSION_FRONT_LOADED_55_85_100: FrontProgressionProf
         label: "front-loaded-55-85-100",
         cumulative_tonnage_targets: [0.55, 0.85, 1.0],
     };
+const FOCUSED_MR187_INPUT_AGGREGATION_PROVENANCE_CHAIN: &str = "selected_block_source + selected_block_count -> preferred phase-plan / preferred nested-shell proxy -> localized-cut builder -> promoted family";
 const MR187_PROMOTED_LOCAL_FRONT_PROGRESSION_PROFILE: FrontProgressionProfileContract =
     SHAPE_GATED_FRONT_PROGRESSION_UNIFORM_33_67_100;
 const LP_BZ_LOCAL_FRONT_COUNT: usize = SHAPE_GATED_FRONT_COUNT;
@@ -353,6 +360,8 @@ struct FocusedPushbackBenchLocalizedCutExperiment {
     first_builder_point_label: String,
     best_sweep_candidate_label: String,
     unit_granularity_label: String,
+    unit_family_traceability: PushbackBenchLocalizedCutUnitFamilyTraceability,
+    input_aggregation_traceability_summary: String,
     max_front_count: usize,
     min_aspect_ratio: f64,
     min_dominant_span: usize,
@@ -2688,11 +2697,15 @@ fn build_mr187_refresh_assumptions() -> Vec<String> {
     vec![
         "marving-info.txt se reutiliza para fijar `field_4` como tonelaje y `field_7` como `proc_profit` ($/ton) durante el refresh focalizado.".to_owned(),
         format!(
-            "El modo `focused-mr187` reutiliza la normalización v8 `{LP_BZ_UNIT_GRANULARITY_LABEL}` con el contrato explícito de front progression `{}` y la relajación de referencia `marvin.LPpcpsp` para recalcular bound, kernel LP y candidato entero LP/BZ sin ejecutar sweeps/baselines ajenos a MR-187.",
-            MR187_PROMOTED_LOCAL_FRONT_PROGRESSION_PROFILE.label,
+            "El modo `focused-mr187` ya mantiene {} como ruta LP/BZ benchmark-side activa del refresh; `{LP_BZ_UNIT_GRANULARITY_LABEL}` queda solo como scaffold/reference explícito del optimizador local, mientras la relajación `marvin.LPpcpsp` se sigue usando para recalcular bound, kernel LP y candidato entero sin reejecutar sweeps/baselines ajenos a MR-187.",
+            format_promoted_lp_bz_family_status_summary(
+                PUSHBACK_BENCH_LOCALIZED_CUT_UNIT_GRANULARITY_LABEL,
+                MARVIN_MR187_PUSHBACK_BENCH_LOCALIZED_CUT_DEFAULT_BUILD_LABEL,
+                LP_BZ_UNIT_GRANULARITY_LABEL,
+            ),
         ),
         format!(
-            "El mismo refresh focalizado también reporta un sweep experimental v9 `{LP_BZ_V9_UNIT_GRANULARITY_LABEL}` para anchos de banda LP {:?} sobre los localized fronts v8 ya fijados al contrato `{}`, de modo que la composición solo se promueva si la granularidad extra mejora el candidato en este contexto.",
+            "El mismo refresh focalizado también reporta un sweep experimental v9 `{LP_BZ_V9_UNIT_GRANULARITY_LABEL}` para anchos de banda LP {:?} sobre los localized fronts v8 ya fijados al contrato `{}`, como evidencia benchmark-side side-by-side sobre si la granularidad extra mejora el candidato en este contexto.",
             LP_BZ_V9_LOCAL_FRONT_PERIOD_BAND_SWEEP_WIDTHS,
             MR187_PROMOTED_LOCAL_FRONT_PROGRESSION_PROFILE.label,
         ),
@@ -2700,7 +2713,7 @@ fn build_mr187_refresh_assumptions() -> Vec<String> {
             "Sobre el ancho v9 focalizado `period_band_width = {LP_BZ_V9_LOCAL_FRONT_PERIOD_BAND_WIDTH}`, el reporte ahora compara side-by-side políticas benchmark-side de enlace entre cuts predecesores (`predecessor-last-cut`, `predecessor-first-cut`, `all-predecessor-cuts`) para aislar si la degradación proviene del cableado de precedencia/acceso."
         ),
         format!(
-            "El refresh focalizado también agrega una ruta benchmark-side `{PUSHBACK_BENCH_LOCALIZED_CUT_UNIT_GRANULARITY_LABEL}` que reutiliza shell×bench + acceso local v8, pero permite dividir componentes elongadas aunque una fase tenga un solo componente plano, para acercarse a mining cuts bench-localized más paper-like."
+            "La familia promotora `{PUSHBACK_BENCH_LOCALIZED_CUT_UNIT_GRANULARITY_LABEL}` del refresh focalizado reutiliza shell×bench + acceso local v8, pero permite dividir componentes elongadas aunque una fase tenga un solo componente plano, para acercarse a mining cuts bench-localized más paper-like; la procedencia input/aggregation sigue siendo benchmark-side y queda separada entre el bloque fuente auditado y el ruteo/destino ya materializado por el refresh."
         ),
         format!(
             "El modo focalizado preserva la misma familia base de fases nested-shell × bench de {MARVIN_END_TO_END_FACTOR_COUNT} revenue factors que usa el reporte completo, pero no reejecuta la baseline `ready frontier`; la ruta activa se limita al refresh LP/BZ."
@@ -2711,6 +2724,14 @@ fn build_mr187_refresh_assumptions() -> Vec<String> {
 fn build_mr187_refresh_limitations() -> Vec<String> {
     vec![
         "El modo `focused-mr187` omite sweeps y baselines ajenos al refresh LP/BZ; usar el modo `full` cuando se necesite el `comparison-report.json` exhaustivo.".to_owned(),
+        format!(
+            "La ruta LP/BZ principal del refresh focalizado mantiene {}; por eso la familia promovida sigue siendo benchmark-side `exploratory-local` y no debe leerse como cierre paper-grade ni como lógica reusable del core.",
+            format_promoted_lp_bz_family_status_summary(
+                PUSHBACK_BENCH_LOCALIZED_CUT_UNIT_GRANULARITY_LABEL,
+                MARVIN_MR187_PUSHBACK_BENCH_LOCALIZED_CUT_DEFAULT_BUILD_LABEL,
+                LP_BZ_UNIT_GRANULARITY_LABEL,
+            ),
+        ),
         "El `lp_bz_lp_solve_artifact` del modo focalizado queda marcado explícitamente como `skipped` para mantener el refresh operativo en este entorno; por eso el gap efectivo usa solo el `native-resource-envelope` y no el solve nativo del kernel.".to_owned(),
         "El campo `candidate_vs_ready_frontier_objective_gap` se fija en `0.0` en el modo focalizado porque la baseline `ready frontier` no se reejecuta; el refresh queda orientado a bound/kernel/candidato LP/BZ y no a la comparación completa contra todas las baselines.".to_owned(),
         "El `lp_bz_integer_candidate_artifact` del modo focalizado conserva el round/repair topológico v6 y el schedule seeded, pero omite el optimizador local v8 más costoso; los diagnósticos lo marcan explícitamente como `skipped-focused-refresh-runtime`, así que el candidato puede quedar más conservador que en `full`.".to_owned(),
@@ -2719,16 +2740,19 @@ fn build_mr187_refresh_limitations() -> Vec<String> {
             MR187_PROMOTED_LOCAL_FRONT_PROGRESSION_PROFILE.label,
         ),
         "El nuevo `lp_bz_v9_local_front_band_link_policy_sweep` sigue siendo puramente benchmark-side: solo cambia cómo el primer cut de cada fase refinada se enlaza con los cuts de sus fases predecesoras, sin introducir una ley bibliográfica de accesos/rampas ni mover lógica al core.".to_owned(),
-        format!(
-            "La ruta `{PUSHBACK_BENCH_LOCALIZED_CUT_UNIT_GRANULARITY_LABEL}` también sigue siendo benchmark-side: usa geometría y precedencias locales auditables para aproximar mining cuts, pero todavía no modela rampas, ancho operativo ni una ley bibliográfica completa de pushback/cut design."
-        ),
     ]
 }
 
 fn build_mr187_refresh_comparability_gaps() -> Vec<String> {
     vec![
         format!(
-            "La unidad LP/BZ auditada sigue siendo la normalización benchmark-side `{LP_BZ_UNIT_GRANULARITY_LABEL}` derivada de fronts localizados, no un set bibliográfico de mining cuts/pushbacks calibrados."
+            "La ruta LP/BZ auditada ya se promueve como {}; aun así sigue siendo una familia benchmark-side derivada de selección `cpit-solution` + `nested-shell-bench`, no un set bibliográfico de mining cuts/pushbacks calibrados."
+            ,
+            format_promoted_lp_bz_family_status_summary(
+                PUSHBACK_BENCH_LOCALIZED_CUT_UNIT_GRANULARITY_LABEL,
+                MARVIN_MR187_PUSHBACK_BENCH_LOCALIZED_CUT_DEFAULT_BUILD_LABEL,
+                LP_BZ_UNIT_GRANULARITY_LABEL,
+            )
         ),
         format!(
             "La variante v9 `{LP_BZ_V9_UNIT_GRANULARITY_LABEL}` sigue siendo igualmente benchmark-side: añade bandas de periodo LP sobre los localized fronts, pero todavía no implementa un generador bibliográfico de mining cuts/pushbacks calibrados."
@@ -3827,6 +3851,27 @@ fn build_focused_pushback_bench_localized_cut_experiment(
                     .to_owned(),
             )
         })?;
+    let preferred_nested_shell_family_contract =
+        build_marvin_preferred_nested_shell_family_contract_for_phase_plan(
+            MARVIN_END_TO_END_FACTOR_COUNT,
+            base_phase_plan,
+        )?;
+    let unit_family_traceability = build_promoted_pushback_bench_localized_cut_unit_family_traceability(
+        "cpit-solution",
+        pcpsp_summary.unique_block_count,
+        &preferred_nested_shell_family_contract.aggregation_strategy,
+        Some(&preferred_nested_shell_family_contract),
+        LP_BZ_UNIT_GRANULARITY_LABEL,
+        PUSHBACK_BENCH_LOCALIZED_CUT_UNIT_GRANULARITY_LABEL,
+        best_sweep_build.config.label,
+        MR187_PROMOTED_LOCAL_FRONT_PROGRESSION_PROFILE.label,
+    );
+    let input_aggregation_traceability_summary =
+        format_promoted_pushback_bench_localized_cut_input_aggregation_gap_summary(
+            &unit_family_traceability,
+            best_sweep_build.benchmark.benchmark.phase_plan.phase_count,
+            best_sweep_build.lp_bz_inputs.precedence_units.unit_count,
+        );
 
     Ok(FocusedPushbackBenchLocalizedCutExperiment {
         builder_label: PUSHBACK_BENCH_LOCALIZED_CUT_BUILDER_LABEL.to_owned(),
@@ -3835,6 +3880,8 @@ fn build_focused_pushback_bench_localized_cut_experiment(
             .to_owned(),
         best_sweep_candidate_label,
         unit_granularity_label: PUSHBACK_BENCH_LOCALIZED_CUT_UNIT_GRANULARITY_LABEL.to_owned(),
+        unit_family_traceability,
+        input_aggregation_traceability_summary,
         max_front_count: best_sweep_build.config.build_config.max_front_count,
         min_aspect_ratio: best_sweep_build.config.build_config.min_aspect_ratio,
         min_dominant_span: best_sweep_build.config.build_config.min_dominant_span,
@@ -8080,20 +8127,23 @@ fn build_baseline_summary(
 #[cfg(test)]
 mod tests {
     use super::{
-        LP_BZ_KERNEL_REPORT_SAMPLE_LIMIT, LP_BZ_V9_LOCAL_FRONT_PERIOD_BAND_WIDTH,
-        LpBzBandPredecessorLinkPolicy, LpBzGapMetrics, LpBzPeriodBandRefinementDiagnostics,
-        MARVIN_BENCHMARK_FOCUSED_MR187_MODE_LABEL, MARVIN_BENCHMARK_FOCUSED_MR187_REPORT_FILE,
-        MARVIN_BENCHMARK_FULL_REPORT_FILE, MR187_PROMOTED_LOCAL_FRONT_PROGRESSION_PROFILE,
-        MarvinBenchmarkMode, PlanarComponentBounds, PlanarComponentDescriptor,
-        PushbackBenchLocalizedCutRefinementDiagnostics, PushbackBenchLocalizedCutSweepEntry,
-        benchmark_blocks_support, build_linear_index_float_lookup,
-        build_lp_bz_access_progression_artifacts, build_lp_bz_access_progression_band_artifacts,
-        build_mine_rs_end_to_end_artifacts, build_mr187_refresh_assumptions,
-        compact_lp_bz_lp_kernel_artifact, front_progression_contract_label, lp_bz_lp_kernel,
-        marvin_support, parse_marvin_benchmark_cli_args,
-        partition_block_indices_by_cumulative_tonnage_targets, partition_block_indices_by_tonnage,
-        representative_period_by_block, select_localized_planar_predecessors,
-        split_phase_plan_by_representative_period_bands,
+        LP_BZ_KERNEL_REPORT_SAMPLE_LIMIT, LP_BZ_UNIT_GRANULARITY_LABEL,
+        LP_BZ_V9_LOCAL_FRONT_PERIOD_BAND_WIDTH, LpBzBandPredecessorLinkPolicy, LpBzGapMetrics,
+        LpBzPeriodBandRefinementDiagnostics, MARVIN_BENCHMARK_FOCUSED_MR187_MODE_LABEL,
+        MARVIN_BENCHMARK_FOCUSED_MR187_REPORT_FILE, MARVIN_BENCHMARK_FULL_REPORT_FILE,
+        MARVIN_MR187_PUSHBACK_BENCH_LOCALIZED_CUT_DEFAULT_BUILD_LABEL,
+        MR187_PROMOTED_LOCAL_FRONT_PROGRESSION_PROFILE, MarvinBenchmarkMode,
+        PUSHBACK_BENCH_LOCALIZED_CUT_UNIT_GRANULARITY_LABEL, PlanarComponentBounds,
+        PlanarComponentDescriptor, PushbackBenchLocalizedCutRefinementDiagnostics,
+        PushbackBenchLocalizedCutSweepEntry, benchmark_blocks_support,
+        build_linear_index_float_lookup, build_lp_bz_access_progression_artifacts,
+        build_lp_bz_access_progression_band_artifacts, build_mine_rs_end_to_end_artifacts,
+        build_mr187_refresh_assumptions, build_mr187_refresh_comparability_gaps,
+        build_mr187_refresh_limitations, compact_lp_bz_lp_kernel_artifact,
+        front_progression_contract_label, lp_bz_lp_kernel, marvin_support,
+        parse_marvin_benchmark_cli_args, partition_block_indices_by_cumulative_tonnage_targets,
+        partition_block_indices_by_tonnage, representative_period_by_block,
+        select_localized_planar_predecessors, split_phase_plan_by_representative_period_bands,
         split_phase_plan_by_representative_period_bands_with_link_policy,
         split_phase_plan_by_representative_period_quantiles,
         validate_lp_bz_period_band_refinement_diagnostics, validate_mr187_refresh_contract,
@@ -8212,12 +8262,38 @@ mod tests {
     }
 
     #[test]
-    fn mr187_refresh_assumptions_reference_promoted_front_profile() {
+    fn mr187_refresh_assumptions_keep_promoted_family_as_active_route() {
         let assumptions = build_mr187_refresh_assumptions();
 
         assert!(assumptions.iter().any(|entry| {
-            entry.contains(MR187_PROMOTED_LOCAL_FRONT_PROGRESSION_PROFILE.label)
-                && entry.contains("shape-gated-local-front-phase")
+            entry.contains(PUSHBACK_BENCH_LOCALIZED_CUT_UNIT_GRANULARITY_LABEL)
+                && entry.contains(MARVIN_MR187_PUSHBACK_BENCH_LOCALIZED_CUT_DEFAULT_BUILD_LABEL)
+                && entry.contains(LP_BZ_UNIT_GRANULARITY_LABEL)
+        }));
+    }
+
+    #[test]
+    fn mr187_refresh_limitations_keep_promoted_family_benchmark_side() {
+        let limitations = build_mr187_refresh_limitations();
+
+        assert!(limitations.iter().any(|entry| {
+            entry.contains(PUSHBACK_BENCH_LOCALIZED_CUT_UNIT_GRANULARITY_LABEL)
+                && entry.contains(MARVIN_MR187_PUSHBACK_BENCH_LOCALIZED_CUT_DEFAULT_BUILD_LABEL)
+                && entry.contains(LP_BZ_UNIT_GRANULARITY_LABEL)
+                && entry.contains("exploratory-local")
+        }));
+    }
+
+    #[test]
+    fn mr187_refresh_comparability_gaps_reference_promoted_family() {
+        let gaps = build_mr187_refresh_comparability_gaps();
+
+        assert!(gaps.iter().any(|entry| {
+            entry.contains(PUSHBACK_BENCH_LOCALIZED_CUT_UNIT_GRANULARITY_LABEL)
+                && entry.contains(MARVIN_MR187_PUSHBACK_BENCH_LOCALIZED_CUT_DEFAULT_BUILD_LABEL)
+                && entry.contains(LP_BZ_UNIT_GRANULARITY_LABEL)
+                && entry.contains("cpit-solution")
+                && entry.contains("nested-shell-bench")
         }));
     }
 
@@ -8544,9 +8620,17 @@ mod tests {
             max_cut_count_per_base_phase: 2,
             average_cut_count_per_base_phase: 1.5,
             realized_front_count_histogram: BTreeMap::from([(1usize, 2usize), (2usize, 2usize)]),
+            readiness_reason_histogram: BTreeMap::from([
+                ("paper-like-three-front-ready".to_owned(), 1usize),
+                ("blocked-low-aspect-ratio".to_owned(), 1usize),
+            ]),
             exact_three_front_candidate_count: 2,
             exact_three_front_failure_count: 1,
             exact_three_front_failure_realized_front_histogram: BTreeMap::from([(2usize, 1usize)]),
+            exact_three_front_failure_reason_histogram: BTreeMap::from([(
+                "exact-three-front-infeasible-collapsed-target-partition".to_owned(),
+                1usize,
+            )]),
             refined_base_phase_examples: vec![String::from("phase-a")],
             refined_single_component_phase_examples: Vec::new(),
         };
@@ -8572,9 +8656,17 @@ mod tests {
             max_cut_count_per_base_phase: 2,
             average_cut_count_per_base_phase: 1.5,
             realized_front_count_histogram: BTreeMap::from([(1usize, 2usize), (2usize, 2usize)]),
+            readiness_reason_histogram: BTreeMap::from([
+                ("paper-like-three-front-ready".to_owned(), 1usize),
+                ("blocked-low-aspect-ratio".to_owned(), 1usize),
+            ]),
             exact_three_front_candidate_count: 2,
             exact_three_front_failure_count: 1,
             exact_three_front_failure_realized_front_histogram: BTreeMap::new(),
+            exact_three_front_failure_reason_histogram: BTreeMap::from([(
+                "exact-three-front-infeasible-collapsed-target-partition".to_owned(),
+                1usize,
+            )]),
             refined_base_phase_examples: vec![String::from("phase-a")],
             refined_single_component_phase_examples: vec![String::from("phase-a")],
         };
