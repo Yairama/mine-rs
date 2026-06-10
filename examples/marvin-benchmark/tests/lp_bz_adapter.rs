@@ -55,6 +55,30 @@ fn marvin_adapter_returns_compact_summary_and_real_focused_optimizer_limitation(
     );
     assert!(result.summary.lp_bz_round_repair.focused_round_repair);
     assert!(!result.summary.lp_bz_round_repair.local_optimization_skipped);
+    assert!(
+        result
+            .summary
+            .lp_bz_round_repair
+            .target_score_decomposition
+            .rounded_discounted_target_score_proxy
+            >= result
+                .summary
+                .lp_bz_round_repair
+                .target_score_decomposition
+                .repaired_discounted_target_score_proxy
+    );
+    assert!(
+        result
+            .summary
+            .lp_bz_round_repair
+            .target_score_decomposition
+            .local_search_discounted_target_score_proxy
+            >= result
+                .summary
+                .lp_bz_round_repair
+                .target_score_decomposition
+                .repaired_discounted_target_score_proxy
+    );
     assert_eq!(
         result
             .summary
@@ -73,9 +97,154 @@ fn marvin_adapter_returns_compact_summary_and_real_focused_optimizer_limitation(
         result
             .summary
             .lp_bz_round_repair
+            .target_score_decomposition
+            .local_search_score_delta_vs_repair_proxy,
+        result
+            .summary
+            .lp_bz_round_repair
+            .target_score_decomposition
+            .local_search_discounted_target_score_proxy
+            - result
+                .summary
+                .lp_bz_round_repair
+                .target_score_decomposition
+                .repaired_discounted_target_score_proxy
+    );
+    assert_eq!(
+        result
+            .summary
+            .lp_bz_round_repair
+            .target_score_decomposition
+            .local_search_score_delta_vs_round_proxy,
+        result
+            .summary
+            .lp_bz_round_repair
+            .target_score_decomposition
+            .local_search_discounted_target_score_proxy
+            - result
+                .summary
+                .lp_bz_round_repair
+                .target_score_decomposition
+                .rounded_discounted_target_score_proxy
+    );
+    assert_eq!(
+        result
+            .summary
+            .lp_bz_round_repair
+            .competitive_probe
+            .competitive_budget_profile
+            .mode_label,
+        "full-round-repair"
+    );
+    assert_eq!(
+        result
+            .summary
+            .lp_bz_round_repair
+            .competitive_probe
+            .competitive_local_search_discounted_target_score_proxy,
+        result
+            .summary
+            .lp_bz_round_repair
+            .competitive_probe
+            .local_search_score_delta_vs_focused_proxy
+            + result
+                .summary
+                .lp_bz_round_repair
+                .target_score_decomposition
+                .local_search_discounted_target_score_proxy
+    );
+    assert_eq!(
+        result
+            .summary
+            .lp_bz_round_repair
+            .competitive_probe
+            .improvement_status,
+        if result
+            .summary
+            .lp_bz_round_repair
+            .competitive_probe
+            .local_search_score_delta_vs_focused_proxy
+            > 1.0e-9
+        {
+            "full-round-repair-probe-improves-focused-proxy"
+        } else if result
+            .summary
+            .lp_bz_round_repair
+            .competitive_probe
+            .local_search_score_delta_vs_focused_proxy
+            < -1.0e-9
+        {
+            "focused-candidate-beats-full-round-repair-probe"
+        } else if result
+            .summary
+            .lp_bz_round_repair
+            .competitive_probe
+            .target_period_change_count_vs_focused
+            > 0
+        {
+            "full-round-repair-probe-reorders-without-proxy-gain"
+        } else if result
+            .summary
+            .lp_bz_round_repair
+            .competitive_probe
+            .competitive_local_optimizer_residual_opportunity
+            .improving_move_available
+        {
+            "full-round-repair-probe-still-has-residual-headroom"
+        } else {
+            "focused-candidate-matches-full-round-repair-probe"
+        }
+    );
+    assert_eq!(
+        result
+            .summary
+            .lp_bz_round_repair
+            .local_optimizer_budget_profile
+            .mode_label,
+        "focused-refresh-budgeted"
+    );
+    assert_eq!(
+        result
+            .summary
+            .lp_bz_round_repair
+            .local_optimizer_budget_profile
+            .effective_iteration_budget,
+        result
+            .summary
+            .lp_bz_round_repair
+            .local_optimizer_runtime_budget_contract
+            .max_iteration_count
+    );
+    assert_eq!(
+        result
+            .summary
+            .lp_bz_round_repair
             .local_optimizer_runtime_budget_contract
             .execution_state,
         "completed-within-budget"
+    );
+    assert!(
+        !result
+            .summary
+            .lp_bz_round_repair
+            .local_optimizer_residual_opportunity
+            .improving_move_available
+    );
+    assert_eq!(
+        result
+            .summary
+            .lp_bz_round_repair
+            .local_optimizer_residual_opportunity
+            .move_kind_label,
+        "none"
+    );
+    assert_eq!(
+        result
+            .summary
+            .lp_bz_round_repair
+            .competitive_probe
+            .competitive_local_optimizer_strategy_label,
+        "deterministic-adjacent-swap-plus-period-ejection-plus-precedence-chain-v8"
     );
     assert_eq!(
         result.summary.lp_bz_lp_kernel.variable_count,

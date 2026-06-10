@@ -328,7 +328,7 @@ fn horizontal_azimuth_degrees(dx_east: f64, dy_north: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use mine_core::{BlockDimensions, MineError};
+    use mine_core::BlockDimensions;
 
     use super::*;
 

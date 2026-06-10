@@ -5,9 +5,11 @@
 //!
 //! Si no se especifican argumentos, el dataset se toma desde `datasets/benchmarks/marvin/`
 //! y el reporte se escribe en `datasets/benchmarks/marvin/outputs/comparison-report.json`.
+//! Las rutas CLI relativas se rebasan contra la raíz del repo para evitar fallos sensibles al cwd.
 //! Definir `MARVIN_BENCHMARK_PRINT_REPORT=1` replica el JSON a stdout solo cuando se necesite.
 
 mod benchmark_blocks_support;
+mod benchmark_path_policy;
 mod lp_bz_adapter;
 mod lp_bz_bound;
 mod lp_bz_lp_kernel;
@@ -16,6 +18,7 @@ mod lp_bz_runtime_budget;
 mod marvin_support;
 mod minelib_scheduling_support;
 mod pushback_bench_localized_cut_support;
+mod temporal_routing_promotion_gate;
 
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
@@ -27,12 +30,13 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use benchmark_blocks_support::read_benchmark_blocks;
+use benchmark_path_policy::BenchmarkPathPolicy;
 use lp_bz_bound::{LpBzBoundArtifact, LpBzInputArtifact, compute_lp_bz_bound_artifacts};
 use lp_bz_lp_kernel::{
     LpBzCutSolveDiagnostics, LpBzCutTighteningStrategy, LpBzLpKernelArtifact,
     LpBzLpKernelConstraintKind, LpBzLpKernelConstraintSense, LpBzLpSolveArtifact,
-    LpBzLpSolveStatus, LpBzPrecedenceEnforcementStrategy, LpBzPrecedenceSolveDiagnostics,
-    build_lp_bz_lp_kernel_artifact, solve_lp_bz_lp_kernel_artifact,
+    LpBzLpSolveStatus, LpBzPrecedenceCoverageCompleteness, LpBzPrecedenceEnforcementStrategy,
+    LpBzPrecedenceSolveDiagnostics, build_lp_bz_lp_kernel_artifact, solve_lp_bz_lp_kernel_artifact,
 };
 use lp_bz_rounder::{
     build_target_period_seeded_schedule_from_lp_round_repair_v6,
@@ -62,6 +66,7 @@ use mine_sdk::{
     solve_upl_exact, uniform_revenue_factors,
 };
 use minelib_scheduling_support::{
+    MARVIN_PAPERLIKE_PROVENANCE_CHAIN, MARVIN_SELECTED_BLOCK_SOURCE,
     build_linear_index_float_lookup, build_marvin_phase_plan_from_revenue_factor_shells,
     build_marvin_preferred_nested_shell_family_contract_for_phase_plan,
 };
@@ -78,6 +83,10 @@ use pushback_bench_localized_cut_support::{
     format_promoted_pushback_bench_localized_cut_input_aggregation_gap_summary,
 };
 use serde::Serialize;
+use temporal_routing_promotion_gate::{
+    TemporalRoutingPromotionGateSummary, build_temporal_routing_promotion_gate_summary,
+    validate_temporal_routing_promotion_gate_summary,
+};
 
 const OFFICIAL_CPIT_OBJECTIVE: f64 = 820_726_048.0;
 const OFFICIAL_LP_CPIT_OBJECTIVE: f64 = 863_916_131.0;
@@ -117,7 +126,8 @@ const SHAPE_GATED_FRONT_PROGRESSION_FRONT_LOADED_55_85_100: FrontProgressionProf
         label: "front-loaded-55-85-100",
         cumulative_tonnage_targets: [0.55, 0.85, 1.0],
     };
-const FOCUSED_MR187_INPUT_AGGREGATION_PROVENANCE_CHAIN: &str = "selected_block_source + selected_block_count -> preferred phase-plan / preferred nested-shell proxy -> localized-cut builder -> promoted family";
+const FOCUSED_MR187_INPUT_AGGREGATION_PROVENANCE_CHAIN: &str =
+    "shells -> pushbacks -> mining-cuts -> scheduling";
 const MR187_PROMOTED_LOCAL_FRONT_PROGRESSION_PROFILE: FrontProgressionProfileContract =
     SHAPE_GATED_FRONT_PROGRESSION_UNIFORM_33_67_100;
 const LP_BZ_LOCAL_FRONT_COUNT: usize = SHAPE_GATED_FRONT_COUNT;
@@ -229,7 +239,6 @@ const MARVIN_BENCHMARK_FULL_REPORT_FILE: &str = "comparison-report.json";
 const MARVIN_BENCHMARK_FOCUSED_MR187_REPORT_FILE: &str = "mr187-focused-refresh-report.json";
 const MARVIN_BENCHMARK_FULL_MODE_LABEL: &str = "full";
 const MARVIN_BENCHMARK_FOCUSED_MR187_MODE_LABEL: &str = "focused-mr187";
-
 #[derive(Debug, Serialize)]
 struct MarvinBenchmarkOutput {
     dataset_dir: String,
@@ -328,12 +337,15 @@ struct FocusedMr187RefreshOutput {
     lp_bz_lp_solve_artifact: LpBzLpSolveArtifact,
     lp_bz_front_progression_label: String,
     lp_bz_integer_candidate_artifact: SchedulingBaselineSummary,
+    lp_bz_temporal_routing_promotion_gate: TemporalRoutingPromotionGateSummary,
     lp_bz_rounder_v6_local_optimizer_diagnostics: LpBzRounderV6LocalOptimizerDiagnostics,
     lp_bz_gap_metrics: LpBzGapMetrics,
     lp_bz_pushback_bench_localized_cut_experiment: FocusedPushbackBenchLocalizedCutExperiment,
     lp_bz_v9_local_front_band_experiment: FocusedLpBzVariantExperiment,
     lp_bz_v9_local_front_band_width_sweep: Vec<LpBzLocalFrontBandWidthSweepEntry>,
     lp_bz_v9_local_front_band_link_policy_sweep: Vec<LpBzLocalFrontBandLinkPolicySweepEntry>,
+    selected_block_provenance_summary: String,
+    selected_block_provenance_chain: Vec<String>,
     comparison_classification: String,
     comparability_gaps: Vec<String>,
     assumptions: Vec<String>,
@@ -512,10 +524,58 @@ struct LpBzGapMetrics {
     effective_discounted_objective_bound: f64,
     effective_bound_source: String,
     native_lp_kernel_discounted_objective_bound: Option<f64>,
+    effective_bound_vs_lp_pcpsp_reference_objective_gap: f64,
+    native_lp_kernel_vs_lp_pcpsp_reference_objective_gap: Option<f64>,
     bound_to_candidate_absolute_gap: f64,
     bound_to_candidate_relative_gap: f64,
+    candidate_path_target_score_proxy_decomposition: LpBzTargetScoreProxyGapDecomposition,
     candidate_vs_pcpsp_reference_objective_gap: f64,
+    ready_frontier_gap_diagnostics: LpBzReadyFrontierGapDiagnostics,
     candidate_vs_ready_frontier_objective_gap: f64,
+}
+
+#[derive(Debug, Serialize)]
+struct LpBzReadyFrontierGapDiagnostics {
+    ready_frontier_discounted_objective: f64,
+    bound_to_ready_frontier_absolute_gap: f64,
+    ready_frontier_to_candidate_absolute_gap: f64,
+    bound_to_ready_frontier_gap_share_of_bound_to_candidate_gap: f64,
+    ready_frontier_to_candidate_gap_share_of_bound_to_candidate_gap: f64,
+    explained_bound_to_candidate_absolute_gap: f64,
+    residual_gap_reconstruction_error: f64,
+    comparison_status: String,
+    dominant_gap_driver: String,
+}
+
+#[derive(Debug, Serialize)]
+struct LpBzTargetScoreProxyGapDecomposition {
+    round_stage: LpBzTargetScoreProxyGapStage,
+    repair_stage: LpBzTargetScoreProxyGapStage,
+    local_search_stage: LpBzTargetScoreProxyGapStage,
+    candidate_objective_stage: LpBzObjectiveGapStage,
+    round_gap_contribution: f64,
+    repair_gap_contribution: f64,
+    local_search_gap_contribution: f64,
+    proxy_to_candidate_objective_gap_contribution: f64,
+    explained_bound_to_candidate_absolute_gap: f64,
+    residual_gap_reconstruction_error: f64,
+    local_search_proxy_vs_candidate_objective_gap: f64,
+}
+
+#[derive(Debug, Serialize)]
+struct LpBzTargetScoreProxyGapStage {
+    stage_label: String,
+    discounted_target_score_proxy: f64,
+    absolute_gap_vs_effective_bound: f64,
+    relative_gap_vs_effective_bound: f64,
+}
+
+#[derive(Debug, Serialize)]
+struct LpBzObjectiveGapStage {
+    stage_label: String,
+    discounted_objective: f64,
+    absolute_gap_vs_effective_bound: f64,
+    relative_gap_vs_effective_bound: f64,
 }
 
 #[derive(Debug, Serialize)]
@@ -643,7 +703,22 @@ struct SchedulingBaselineSummary {
     phase_count: usize,
     candidate_pcpsp_summary: MarvinScheduleSolutionSummary,
     candidate_vs_reference_metrics: NumericMetricComparisonReport,
+    candidate_vs_reference_period_alignment: PeriodAlignmentSummary,
     candidate_vs_reference_membership_comparison: CompactPeriodMembershipComparison,
+    temporal_routing_promotion_gate: TemporalRoutingPromotionGateSummary,
+}
+
+#[derive(Debug, Serialize)]
+struct PeriodAlignmentSummary {
+    shared_block_count: usize,
+    reference_only_block_count: usize,
+    candidate_only_block_count: usize,
+    exact_period_match_count: usize,
+    earlier_than_reference_count: usize,
+    later_than_reference_count: usize,
+    mean_absolute_period_delta: f64,
+    max_absolute_period_delta: f64,
+    largest_absolute_period_delta_examples: Vec<(usize, usize, usize)>,
 }
 
 #[derive(Debug, Serialize)]
@@ -662,10 +737,18 @@ struct LpBzPeriodBandRefinementDiagnostics {
 struct LpBzRounderV6LocalOptimizerDiagnostics {
     rounder_strategy_label: String,
     local_optimizer_strategy_label: String,
+    local_optimizer_budget_mode_label: String,
+    local_optimizer_target_unit_count: usize,
+    local_optimizer_horizon_period_count: usize,
+    local_optimizer_full_iteration_budget: usize,
+    local_optimizer_requested_iteration_budget: usize,
+    local_optimizer_effective_iteration_budget: usize,
     local_optimizer_max_iteration_count: usize,
     local_optimizer_executed_iteration_count: usize,
     local_optimizer_improving_move_count: usize,
     local_optimizer_termination_reason: String,
+    local_optimizer_residual_move_kind_label: String,
+    local_optimizer_residual_discounted_gain: f64,
     repaired_phase_target_count: usize,
     repaired_unit_target_count: usize,
     horizon_clamp_count: usize,
@@ -848,13 +931,15 @@ struct CompactPeriodMembershipComparison {
     candidate_only_assignment_examples: Vec<(String, usize)>,
 }
 
-fn parse_marvin_benchmark_cli(repo_root: &Path) -> Result<MarvinBenchmarkCli, MineError> {
+fn parse_marvin_benchmark_cli(
+    path_policy: &BenchmarkPathPolicy,
+) -> Result<MarvinBenchmarkCli, MineError> {
     let env_mode = env::var(MARVIN_BENCHMARK_MODE_ENV).ok();
-    parse_marvin_benchmark_cli_args(repo_root, env_mode.as_deref(), env::args_os().skip(1))
+    parse_marvin_benchmark_cli_args(path_policy, env_mode.as_deref(), env::args_os().skip(1))
 }
 
 fn parse_marvin_benchmark_cli_args<I, S>(
-    repo_root: &Path,
+    path_policy: &BenchmarkPathPolicy,
     env_mode: Option<&str>,
     args: I,
 ) -> Result<MarvinBenchmarkCli, MineError>
@@ -871,6 +956,9 @@ where
 
     while let Some(arg) = args.next() {
         let arg_text = arg.to_string_lossy();
+        if matches!(arg_text.as_ref(), "--quiet" | "-q") {
+            continue;
+        }
         if let Some(value) = arg_text.strip_prefix("--mode=") {
             mode = MarvinBenchmarkMode::parse(value, "--mode")?;
             continue;
@@ -884,7 +972,12 @@ where
             mode = MarvinBenchmarkMode::parse(&value.to_string_lossy(), "--mode")?;
             continue;
         }
-        positional_args.push(PathBuf::from(arg));
+        if arg_text.starts_with('-') {
+            return Err(MineError::validation(format!(
+                "Unknown option `{arg_text}`. Supported options: `--mode`, optional positional `dataset_dir`, and optional positional `output_path`."
+            )));
+        }
+        positional_args.push(path_policy.resolve_cli_path(Path::new(&arg)));
     }
 
     if positional_args.len() > 2 {
@@ -897,7 +990,7 @@ where
     let dataset_dir = positional_args
         .first()
         .cloned()
-        .unwrap_or_else(|| repo_root.join("datasets").join("benchmarks").join("marvin"));
+        .unwrap_or_else(|| path_policy.dataset_dir("marvin"));
     let output_path = positional_args.get(1).cloned().unwrap_or_else(|| {
         dataset_dir
             .join("outputs")
@@ -912,14 +1005,13 @@ where
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..");
-    let cli = parse_marvin_benchmark_cli(&repo_root)?;
+    let path_policy = BenchmarkPathPolicy::discover()?;
+    let repo_root = path_policy.repo_root().to_path_buf();
+    let cli = parse_marvin_benchmark_cli(&path_policy)?;
     let dataset_dir = cli.dataset_dir;
     let output_path = cli.output_path;
     let blocks_path = dataset_dir.join("marvin.blocks");
-    let references_dir = dataset_dir.join("references");
+    let references_dir = path_policy.references_dir(&dataset_dir);
     let prec_path = references_dir.join("marvin.prec");
     let upit_solution_path = references_dir.join("marvin_upit.sol");
     let upit_objective_path = references_dir.join("marvin.upit");
@@ -2119,6 +2211,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let lp_bz_gap_metrics = build_lp_bz_gap_metrics(
         &lp_bz_bound_artifacts.lp_bz_bound_artifact,
         &lp_bz_lp_solve_artifact,
+        &lp_bz_round_repair_artifacts
+            .unit_round_repair
+            .target_score_decomposition,
         &lp_bz_integer_candidate_artifact.candidate_pcpsp_summary,
         pcpsp_summary.discounted_objective,
         candidate_pcpsp_summary.discounted_objective,
@@ -2536,6 +2631,7 @@ fn build_focused_mr187_refresh_output(
             repo_root,
             &tonnage_column,
             &tonnage_by_linear_index,
+            MARVIN_SELECTED_BLOCK_SOURCE,
             &lp_bz_integer_candidate_artifact,
         )?;
     let mut lp_bz_v9_local_front_band_experiment = None::<FocusedLpBzVariantExperiment>;
@@ -2627,11 +2723,20 @@ fn build_focused_mr187_refresh_output(
     let lp_bz_gap_metrics = build_lp_bz_gap_metrics(
         &lp_bz_bound_artifacts.lp_bz_bound_artifact,
         &lp_bz_lp_solve_artifact,
+        &lp_bz_round_repair_artifacts
+            .unit_round_repair
+            .target_score_decomposition,
         &lp_bz_integer_candidate_artifact.candidate_pcpsp_summary,
         pcpsp_summary.discounted_objective,
         lp_bz_integer_candidate_artifact
             .candidate_pcpsp_summary
             .discounted_objective,
+    );
+    let lp_bz_temporal_routing_promotion_gate = lp_bz_integer_candidate_artifact
+        .temporal_routing_promotion_gate
+        .clone();
+    let comparability_gaps = build_mr187_refresh_comparability_gaps(
+        &lp_bz_pushback_bench_localized_cut_experiment.unit_family_traceability,
     );
     let output = FocusedMr187RefreshOutput {
         report_mode: MarvinBenchmarkMode::FocusedMr187
@@ -2662,14 +2767,23 @@ fn build_focused_mr187_refresh_output(
             .label
             .to_owned(),
         lp_bz_integer_candidate_artifact,
+        lp_bz_temporal_routing_promotion_gate,
         lp_bz_rounder_v6_local_optimizer_diagnostics,
         lp_bz_gap_metrics,
+        selected_block_provenance_summary: lp_bz_pushback_bench_localized_cut_experiment
+            .unit_family_traceability
+            .derivation_summary
+            .clone(),
+        selected_block_provenance_chain: MARVIN_PAPERLIKE_PROVENANCE_CHAIN
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
         lp_bz_pushback_bench_localized_cut_experiment,
         lp_bz_v9_local_front_band_experiment,
         lp_bz_v9_local_front_band_width_sweep,
         lp_bz_v9_local_front_band_link_policy_sweep,
         comparison_classification: "exploratory-local".to_owned(),
-        comparability_gaps: build_mr187_refresh_comparability_gaps(),
+        comparability_gaps,
         assumptions: build_mr187_refresh_assumptions(),
         limitations: build_mr187_refresh_limitations(),
     };
@@ -2716,6 +2830,10 @@ fn build_mr187_refresh_assumptions() -> Vec<String> {
             "La familia promotora `{PUSHBACK_BENCH_LOCALIZED_CUT_UNIT_GRANULARITY_LABEL}` del refresh focalizado reutiliza shell×bench + acceso local v8, pero permite dividir componentes elongadas aunque una fase tenga un solo componente plano, para acercarse a mining cuts bench-localized más paper-like; la procedencia input/aggregation sigue siendo benchmark-side y queda separada entre el bloque fuente auditado y el ruteo/destino ya materializado por el refresh."
         ),
         format!(
+            "La procedencia Marvin ya se publica como cadena explícita `{FOCUSED_MR187_INPUT_AGGREGATION_PROVENANCE_CHAIN}` bajo `selected_block_provenance_summary` + `selected_block_provenance_chain`; el remanente abierto ya no es un seed CPIT implícito sino que la reconstrucción de shells/pushbacks/mining cuts sigue siendo benchmark-side."
+        ),
+        "Con esa trazabilidad benchmark-side ya auditada, el siguiente salto de madurez no es otro tweak local del harness: hace falta un contrato compartido/core-side o un cambio protocolario que materialice shells/pushbacks/mining cuts como input reproducible de scheduling antes de salir de `exploratory-local`.".to_owned(),
+        format!(
             "El modo focalizado preserva la misma familia base de fases nested-shell × bench de {MARVIN_END_TO_END_FACTOR_COUNT} revenue factors que usa el reporte completo, pero no reejecuta la baseline `ready frontier`; la ruta activa se limita al refresh LP/BZ."
         ),
     ]
@@ -2739,14 +2857,47 @@ fn build_mr187_refresh_limitations() -> Vec<String> {
             "El sweep v9 experimental `{LP_BZ_V9_UNIT_GRANULARITY_LABEL}` del refresh focalizado todavía no reemplaza la ruta base v8 con contrato `{}`: solo agrega evidencia side-by-side por ancho de banda LP sobre granularidad, round/repair y gap antes de decidir una promoción.",
             MR187_PROMOTED_LOCAL_FRONT_PROGRESSION_PROFILE.label,
         ),
+        "El contrato benchmark-side actual ya parece maduro en su capa local: mientras `selected_block_provenance_summary`, `selected_block_provenance_chain` y el puente cuantitativo sigan describiendo una reconstrucción sidecar, el siguiente avance real depende de mover esa procedencia/unidad a un contrato compartido/core-side o a un cambio protocolario explícito, no de seguir endureciendo solo el benchmark.".to_owned(),
         "El nuevo `lp_bz_v9_local_front_band_link_policy_sweep` sigue siendo puramente benchmark-side: solo cambia cómo el primer cut de cada fase refinada se enlaza con los cuts de sus fases predecesoras, sin introducir una ley bibliográfica de accesos/rampas ni mover lógica al core.".to_owned(),
     ]
 }
 
-fn build_mr187_refresh_comparability_gaps() -> Vec<String> {
+fn build_mr187_refresh_comparability_gaps(
+    unit_family_traceability: &PushbackBenchLocalizedCutUnitFamilyTraceability,
+) -> Vec<String> {
+    let selected_block_source = &unit_family_traceability
+        .selected_block_provenance
+        .selected_block_source;
+    let aggregation_strategy = &unit_family_traceability
+        .preferred_phase_plan_proxy
+        .aggregation_strategy;
+    let quantified_chain_summary = match (
+        unit_family_traceability
+            .selected_block_provenance
+            .selected_block_count,
+        unit_family_traceability
+            .preferred_phase_plan_proxy
+            .preferred_phase_count,
+        unit_family_traceability
+            .localized_cut_builder_provenance
+            .promoted_cut_phase_count,
+        unit_family_traceability
+            .localized_cut_builder_provenance
+            .scheduling_unit_count,
+    ) {
+        (
+            Some(selected_block_count),
+            Some(preferred_phase_count),
+            Some(promoted_cut_phase_count),
+            Some(scheduling_unit_count),
+        ) => format!(
+            "The audited benchmark-side bridge is now quantified explicitly as {selected_block_count} selected blocks -> {preferred_phase_count} shell×bench pushback phases -> {promoted_cut_phase_count} promoted mining-cut phases -> {scheduling_unit_count} scheduling units."
+        ),
+        _ => "The benchmark-side bridge is explicit, but its shells -> pushbacks -> mining-cuts -> scheduling counts are still incomplete.".to_owned(),
+    };
     vec![
         format!(
-            "La ruta LP/BZ auditada ya se promueve como {}; aun así sigue siendo una familia benchmark-side derivada de selección `cpit-solution` + `nested-shell-bench`, no un set bibliográfico de mining cuts/pushbacks calibrados."
+            "La ruta LP/BZ auditada ya se promueve como {}; además la procedencia Marvin ya se etiqueta explícitamente como `{selected_block_source}` sobre la cadena `{FOCUSED_MR187_INPUT_AGGREGATION_PROVENANCE_CHAIN}`. Aun así, la familia sigue siendo benchmark-side: `{aggregation_strategy}` continúa siendo una reconstrucción reproducible y no un set bibliográfico de shells/pushbacks/mining cuts calibrados. {quantified_chain_summary}"
             ,
             format_promoted_lp_bz_family_status_summary(
                 PUSHBACK_BENCH_LOCALIZED_CUT_UNIT_GRANULARITY_LABEL,
@@ -2754,6 +2905,7 @@ fn build_mr187_refresh_comparability_gaps() -> Vec<String> {
                 LP_BZ_UNIT_GRANULARITY_LABEL,
             )
         ),
+        "La madurez benchmark-side ya quedó agotada dentro de este contrato local: mientras la procedencia `shells -> pushbacks -> mining cuts -> scheduling` no pase a un contrato compartido/core-side o a una definición protocolaria más fuerte del input scheduling, la ruta debe seguir leyéndose como evidencia `exploratory-local` y no como comparabilidad paper-grade.".to_owned(),
         format!(
             "La variante v9 `{LP_BZ_V9_UNIT_GRANULARITY_LABEL}` sigue siendo igualmente benchmark-side: añade bandas de periodo LP sobre los localized fronts, pero todavía no implementa un generador bibliográfico de mining cuts/pushbacks calibrados."
         ),
@@ -2780,6 +2932,16 @@ fn build_skipped_focused_lp_bz_lp_solve_artifact(
             total_precedence_rows: artifact.constraints.summary.precedence_row_count,
             enforced_precedence_rows: 0,
             skipped_precedence_rows: artifact.constraints.summary.precedence_row_count,
+            coverage_completeness: if artifact.constraints.summary.precedence_row_count == 0 {
+                LpBzPrecedenceCoverageCompleteness::NotApplicable
+            } else {
+                LpBzPrecedenceCoverageCompleteness::Partial
+            },
+            coverage_basis_points: if artifact.constraints.summary.precedence_row_count == 0 {
+                None
+            } else {
+                Some(0)
+            },
             enforced_period_indices: Vec::new(),
             skipped_period_indices: (0..artifact.period_count).collect(),
         },
@@ -2800,6 +2962,16 @@ fn build_skipped_focused_lp_bz_lp_solve_artifact(
 fn validate_focused_mr187_refresh_output(
     output: &FocusedMr187RefreshOutput,
 ) -> Result<(), MineError> {
+    if output.lp_bz_temporal_routing_promotion_gate
+        != output
+            .lp_bz_integer_candidate_artifact
+            .temporal_routing_promotion_gate
+    {
+        return Err(MineError::validation(
+            "Focused MR-187 refresh top-level promotion gate must mirror the LP/BZ integer candidate artifact."
+                .to_owned(),
+        ));
+    }
     validate_mr187_refresh_contract(
         &output.report_mode,
         &output
@@ -2808,6 +2980,7 @@ fn validate_focused_mr187_refresh_output(
         &output.lp_bz_gap_metrics,
         &output.comparison_classification,
         &output.comparability_gaps,
+        &output.lp_bz_temporal_routing_promotion_gate,
     )?;
     validate_mr187_refresh_contract(
         &output.report_mode,
@@ -2820,6 +2993,10 @@ fn validate_focused_mr187_refresh_output(
             .lp_bz_gap_metrics,
         &output.comparison_classification,
         &output.comparability_gaps,
+        &output
+            .lp_bz_pushback_bench_localized_cut_experiment
+            .lp_bz_integer_candidate_artifact
+            .temporal_routing_promotion_gate,
     )?;
     validate_pushback_bench_localized_cut_refinement_diagnostics(
         &output
@@ -2842,6 +3019,10 @@ fn validate_focused_mr187_refresh_output(
             .lp_bz_gap_metrics,
         &output.comparison_classification,
         &output.comparability_gaps,
+        &output
+            .lp_bz_v9_local_front_band_experiment
+            .lp_bz_integer_candidate_artifact
+            .temporal_routing_promotion_gate,
     )?;
     validate_lp_bz_period_band_refinement_diagnostics(
         &output
@@ -2853,6 +3034,22 @@ fn validate_focused_mr187_refresh_output(
             "Focused MR-187 refresh must report predecessor-link evidence for the v9 local-front period-band sweep."
                 .to_owned(),
         ));
+    }
+    if output.selected_block_provenance_summary.trim().is_empty() {
+        return Err(MineError::validation(
+            "Focused MR-187 refresh must surface a top-level selected-block provenance summary."
+                .to_owned(),
+        ));
+    }
+    if output.selected_block_provenance_chain
+        != MARVIN_PAPERLIKE_PROVENANCE_CHAIN
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    {
+        return Err(MineError::validation(format!(
+            "Focused MR-187 refresh provenance chain must stay aligned with `{FOCUSED_MR187_INPUT_AGGREGATION_PROVENANCE_CHAIN}`."
+        )));
     }
     Ok(())
 }
@@ -2990,6 +3187,7 @@ fn validate_mr187_refresh_contract(
     gap_metrics: &LpBzGapMetrics,
     comparison_classification: &str,
     comparability_gaps: &[String],
+    temporal_routing_promotion_gate: &TemporalRoutingPromotionGateSummary,
 ) -> Result<(), MineError> {
     if report_mode != MARVIN_BENCHMARK_FOCUSED_MR187_MODE_LABEL {
         return Err(MineError::validation(format!(
@@ -3015,6 +3213,213 @@ fn validate_mr187_refresh_contract(
             "Focused MR-187 refresh relative gap must be non-negative.".to_owned(),
         ));
     }
+    let target_score_proxy = &gap_metrics.candidate_path_target_score_proxy_decomposition;
+    if (target_score_proxy.round_gap_contribution
+        - target_score_proxy
+            .round_stage
+            .absolute_gap_vs_effective_bound)
+        .abs()
+        > 1.0e-6
+    {
+        return Err(MineError::validation(
+            "Focused MR-187 refresh target-score proxy decomposition must keep the round-stage contribution aligned with the surfaced round-stage gap."
+                .to_owned(),
+        ));
+    }
+    if (target_score_proxy.repair_gap_contribution
+        - (target_score_proxy
+            .repair_stage
+            .absolute_gap_vs_effective_bound
+            - target_score_proxy
+                .round_stage
+                .absolute_gap_vs_effective_bound))
+        .abs()
+        > 1.0e-6
+    {
+        return Err(MineError::validation(
+            "Focused MR-187 refresh target-score proxy decomposition must keep the repair-stage contribution aligned with the round -> repair gap delta."
+                .to_owned(),
+        ));
+    }
+    if (target_score_proxy.local_search_gap_contribution
+        - (target_score_proxy
+            .local_search_stage
+            .absolute_gap_vs_effective_bound
+            - target_score_proxy
+                .repair_stage
+                .absolute_gap_vs_effective_bound))
+        .abs()
+        > 1.0e-6
+    {
+        return Err(MineError::validation(
+            "Focused MR-187 refresh target-score proxy decomposition must keep the local-search contribution aligned with the repair -> local-search gap delta."
+                .to_owned(),
+        ));
+    }
+    if (target_score_proxy.proxy_to_candidate_objective_gap_contribution
+        - (target_score_proxy
+            .candidate_objective_stage
+            .absolute_gap_vs_effective_bound
+            - target_score_proxy
+                .local_search_stage
+                .absolute_gap_vs_effective_bound))
+        .abs()
+        > 1.0e-6
+    {
+        return Err(MineError::validation(
+            "Focused MR-187 refresh target-score proxy decomposition must keep the local-search proxy -> candidate objective contribution aligned with the surfaced local-search and candidate objective gaps."
+                .to_owned(),
+        ));
+    }
+    if (target_score_proxy.explained_bound_to_candidate_absolute_gap
+        - gap_metrics.bound_to_candidate_absolute_gap)
+        .abs()
+        > 1.0e-6
+    {
+        return Err(MineError::validation(
+            "Focused MR-187 refresh target-score proxy decomposition must reconstruct the bound -> candidate objective gap exactly."
+                .to_owned(),
+        ));
+    }
+    if target_score_proxy.residual_gap_reconstruction_error.abs() > 1.0e-6 {
+        return Err(MineError::validation(
+            "Focused MR-187 refresh residual gap reconstruction error must remain numerically negligible."
+                .to_owned(),
+        ));
+    }
+    if (target_score_proxy
+        .candidate_objective_stage
+        .absolute_gap_vs_effective_bound
+        - gap_metrics.bound_to_candidate_absolute_gap)
+        .abs()
+        > 1.0e-6
+    {
+        return Err(MineError::validation(
+            "Focused MR-187 refresh candidate objective stage must stay aligned with the surfaced bound -> candidate objective gap."
+                .to_owned(),
+        ));
+    }
+    if (target_score_proxy.local_search_proxy_vs_candidate_objective_gap
+        + target_score_proxy.proxy_to_candidate_objective_gap_contribution)
+        .abs()
+        > 1.0e-6
+    {
+        return Err(MineError::validation(
+            "Focused MR-187 refresh proxy/candidate objective delta must keep its signed and contribution forms aligned."
+                .to_owned(),
+        ));
+    }
+    let ready_frontier_gap = &gap_metrics.ready_frontier_gap_diagnostics;
+    if (ready_frontier_gap.ready_frontier_discounted_objective
+        + gap_metrics.candidate_vs_ready_frontier_objective_gap
+        - candidate_summary.discounted_objective)
+        .abs()
+        > 1.0e-6
+    {
+        return Err(MineError::validation(
+            "Focused MR-187 refresh ready-frontier diagnostics must reconstruct the candidate objective from the surfaced ready-frontier objective and candidate-vs-ready-frontier gap."
+                .to_owned(),
+        ));
+    }
+    let expected_bound_to_ready_frontier_gap = gap_metrics.effective_discounted_objective_bound
+        - ready_frontier_gap.ready_frontier_discounted_objective;
+    if (ready_frontier_gap.bound_to_ready_frontier_absolute_gap
+        - expected_bound_to_ready_frontier_gap)
+        .abs()
+        > 1.0e-6
+    {
+        return Err(MineError::validation(
+            "Focused MR-187 refresh ready-frontier diagnostics must keep the bound -> ready-frontier gap aligned with the surfaced effective bound and ready-frontier objective."
+                .to_owned(),
+        ));
+    }
+    let expected_ready_frontier_to_candidate_gap = ready_frontier_gap
+        .ready_frontier_discounted_objective
+        - candidate_summary.discounted_objective;
+    if (ready_frontier_gap.ready_frontier_to_candidate_absolute_gap
+        - expected_ready_frontier_to_candidate_gap)
+        .abs()
+        > 1.0e-6
+    {
+        return Err(MineError::validation(
+            "Focused MR-187 refresh ready-frontier diagnostics must keep the ready-frontier -> candidate gap aligned with the surfaced objectives."
+                .to_owned(),
+        ));
+    }
+    if (ready_frontier_gap.explained_bound_to_candidate_absolute_gap
+        - gap_metrics.bound_to_candidate_absolute_gap)
+        .abs()
+        > 1.0e-6
+    {
+        return Err(MineError::validation(
+            "Focused MR-187 refresh ready-frontier diagnostics must reconstruct the bound -> candidate gap exactly."
+                .to_owned(),
+        ));
+    }
+    if ready_frontier_gap.residual_gap_reconstruction_error.abs() > 1.0e-6 {
+        return Err(MineError::validation(
+            "Focused MR-187 refresh ready-frontier residual gap reconstruction error must remain numerically negligible."
+                .to_owned(),
+        ));
+    }
+    if gap_metrics.bound_to_candidate_absolute_gap.abs() <= f64::EPSILON {
+        if ready_frontier_gap
+            .bound_to_ready_frontier_gap_share_of_bound_to_candidate_gap
+            .abs()
+            > 1.0e-6
+            || ready_frontier_gap
+                .ready_frontier_to_candidate_gap_share_of_bound_to_candidate_gap
+                .abs()
+                > 1.0e-6
+        {
+            return Err(MineError::validation(
+                "Focused MR-187 refresh ready-frontier gap shares must neutralize when the total bound -> candidate gap is zero."
+                    .to_owned(),
+            ));
+        }
+    } else {
+        if (ready_frontier_gap.bound_to_ready_frontier_gap_share_of_bound_to_candidate_gap
+            - (ready_frontier_gap.bound_to_ready_frontier_absolute_gap
+                / gap_metrics.bound_to_candidate_absolute_gap))
+            .abs()
+            > 1.0e-6
+        {
+            return Err(MineError::validation(
+                "Focused MR-187 refresh ready-frontier diagnostics must keep the bound -> ready-frontier gap share aligned with the surfaced absolute gaps."
+                    .to_owned(),
+            ));
+        }
+        if (ready_frontier_gap.ready_frontier_to_candidate_gap_share_of_bound_to_candidate_gap
+            - (ready_frontier_gap.ready_frontier_to_candidate_absolute_gap
+                / gap_metrics.bound_to_candidate_absolute_gap))
+            .abs()
+            > 1.0e-6
+        {
+            return Err(MineError::validation(
+                "Focused MR-187 refresh ready-frontier diagnostics must keep the ready-frontier -> candidate gap share aligned with the surfaced absolute gaps."
+                    .to_owned(),
+            ));
+        }
+    }
+    let expected_ready_frontier_comparison_status = classify_lp_bz_ready_frontier_comparison_status(
+        ready_frontier_gap.ready_frontier_to_candidate_absolute_gap,
+    );
+    if ready_frontier_gap.comparison_status != expected_ready_frontier_comparison_status {
+        return Err(MineError::validation(
+            "Focused MR-187 refresh ready-frontier diagnostics must keep the comparison status aligned with the signed ready-frontier -> candidate gap."
+                .to_owned(),
+        ));
+    }
+    let expected_ready_frontier_gap_driver = classify_lp_bz_ready_frontier_gap_driver(
+        ready_frontier_gap.bound_to_ready_frontier_absolute_gap,
+        ready_frontier_gap.ready_frontier_to_candidate_absolute_gap,
+    );
+    if ready_frontier_gap.dominant_gap_driver != expected_ready_frontier_gap_driver {
+        return Err(MineError::validation(
+            "Focused MR-187 refresh ready-frontier diagnostics must keep the dominant gap driver aligned with the surfaced absolute gaps."
+                .to_owned(),
+        ));
+    }
     if comparison_classification == "paper-comparable" && !comparability_gaps.is_empty() {
         return Err(MineError::validation(
             "Focused MR-187 refresh comparability gaps must be empty for `paper-comparable` runs."
@@ -3024,6 +3429,20 @@ fn validate_mr187_refresh_contract(
     if comparison_classification == "exploratory-local" && comparability_gaps.is_empty() {
         return Err(MineError::validation(
             "Focused MR-187 refresh must explain comparability gaps when classified as `exploratory-local`."
+                .to_owned(),
+        ));
+    }
+    validate_temporal_routing_promotion_gate_summary(temporal_routing_promotion_gate)
+        .map_err(MineError::validation)?;
+    if temporal_routing_promotion_gate.promotion_decision
+        != if temporal_routing_promotion_gate.npv_improves_over_reference {
+            "blocked-by-temporal-routing"
+        } else {
+            "blocked-by-npv-and-temporal-routing"
+        }
+    {
+        return Err(MineError::validation(
+            "Focused MR-187 refresh promotion gate must keep the current LP/BZ family non-promotable while temporal/routing comparability remains exploratory."
                 .to_owned(),
         ));
     }
@@ -3767,6 +4186,7 @@ fn build_focused_pushback_bench_localized_cut_experiment(
     repo_root: &Path,
     tonnage_column: &ColumnId,
     tonnage_by_linear_index: &BTreeMap<usize, f64>,
+    selected_block_source: &str,
     v8_local_front_candidate_artifact: &SchedulingBaselineSummary,
 ) -> Result<FocusedPushbackBenchLocalizedCutExperiment, MineError> {
     let sweep_builds = PUSHBACK_BENCH_LOCALIZED_CUT_FOCUSED_SWEEP
@@ -3856,16 +4276,20 @@ fn build_focused_pushback_bench_localized_cut_experiment(
             MARVIN_END_TO_END_FACTOR_COUNT,
             base_phase_plan,
         )?;
-    let unit_family_traceability = build_promoted_pushback_bench_localized_cut_unit_family_traceability(
-        "cpit-solution",
-        pcpsp_summary.unique_block_count,
-        &preferred_nested_shell_family_contract.aggregation_strategy,
-        Some(&preferred_nested_shell_family_contract),
-        LP_BZ_UNIT_GRANULARITY_LABEL,
-        PUSHBACK_BENCH_LOCALIZED_CUT_UNIT_GRANULARITY_LABEL,
-        best_sweep_build.config.label,
-        MR187_PROMOTED_LOCAL_FRONT_PROGRESSION_PROFILE.label,
-    );
+    let unit_family_traceability =
+        build_promoted_pushback_bench_localized_cut_unit_family_traceability(
+            selected_block_source,
+            pcpsp_summary.unique_block_count,
+            &preferred_nested_shell_family_contract.aggregation_strategy,
+            Some(&preferred_nested_shell_family_contract),
+            base_phase_plan.phase_count,
+            LP_BZ_UNIT_GRANULARITY_LABEL,
+            PUSHBACK_BENCH_LOCALIZED_CUT_UNIT_GRANULARITY_LABEL,
+            best_sweep_build.config.label,
+            MR187_PROMOTED_LOCAL_FRONT_PROGRESSION_PROFILE.label,
+            best_sweep_build.benchmark.benchmark.phase_plan.phase_count,
+            best_sweep_build.lp_bz_inputs.precedence_units.unit_count,
+        );
     let input_aggregation_traceability_summary =
         format_promoted_pushback_bench_localized_cut_input_aggregation_gap_summary(
             &unit_family_traceability,
@@ -4005,6 +4429,9 @@ fn build_focused_pushback_bench_localized_cut_sweep_build(
     let gap_metrics = build_lp_bz_gap_metrics(
         &bound_artifacts.lp_bz_bound_artifact,
         &lp_solve_artifact,
+        &round_repair_artifacts
+            .unit_round_repair
+            .target_score_decomposition,
         &integer_candidate_artifact.candidate_pcpsp_summary,
         pcpsp_summary.discounted_objective,
         integer_candidate_artifact
@@ -4191,6 +4618,9 @@ fn build_focused_lp_bz_local_front_band_experiment(
     let gap_metrics = build_lp_bz_gap_metrics(
         &bound_artifacts.lp_bz_bound_artifact,
         &lp_solve_artifact,
+        &round_repair_artifacts
+            .unit_round_repair
+            .target_score_decomposition,
         &integer_candidate_artifact.candidate_pcpsp_summary,
         pcpsp_summary.discounted_objective,
         integer_candidate_artifact
@@ -7664,6 +8094,84 @@ fn build_reference_period_destination_memberships(
     memberships
 }
 
+fn compare_period_alignment(
+    reference: &marvin_support::MarvinScheduleSolution,
+    candidate: &marvin_support::MarvinScheduleSolution,
+) -> PeriodAlignmentSummary {
+    let reference_period_by_block = reference
+        .assignments
+        .iter()
+        .map(|assignment| (assignment.linear_index, assignment.period_index))
+        .collect::<BTreeMap<_, _>>();
+    let candidate_period_by_block = candidate
+        .assignments
+        .iter()
+        .map(|assignment| (assignment.linear_index, assignment.period_index))
+        .collect::<BTreeMap<_, _>>();
+    let shared_blocks = reference_period_by_block
+        .keys()
+        .filter(|linear_index| candidate_period_by_block.contains_key(linear_index))
+        .copied()
+        .collect::<Vec<_>>();
+    let mut exact_period_match_count = 0usize;
+    let mut earlier_than_reference_count = 0usize;
+    let mut later_than_reference_count = 0usize;
+    let mut absolute_period_delta_sum = 0usize;
+    let mut max_absolute_period_delta = 0usize;
+    let mut largest_absolute_period_delta_examples = Vec::new();
+    for linear_index in &shared_blocks {
+        let reference_period = reference_period_by_block[linear_index];
+        let candidate_period = candidate_period_by_block[linear_index];
+        if reference_period == candidate_period {
+            exact_period_match_count += 1;
+        } else if candidate_period < reference_period {
+            earlier_than_reference_count += 1;
+        } else {
+            later_than_reference_count += 1;
+        }
+        let absolute_period_delta = reference_period.abs_diff(candidate_period);
+        absolute_period_delta_sum += absolute_period_delta;
+        if absolute_period_delta > max_absolute_period_delta {
+            max_absolute_period_delta = absolute_period_delta;
+        }
+        if absolute_period_delta > 0 {
+            largest_absolute_period_delta_examples.push((
+                *linear_index,
+                reference_period,
+                candidate_period,
+            ));
+        }
+    }
+    largest_absolute_period_delta_examples.sort_by_key(
+        |(_, reference_period, candidate_period)| {
+            std::cmp::Reverse(reference_period.abs_diff(*candidate_period))
+        },
+    );
+
+    PeriodAlignmentSummary {
+        shared_block_count: shared_blocks.len(),
+        reference_only_block_count: reference_period_by_block
+            .len()
+            .saturating_sub(shared_blocks.len()),
+        candidate_only_block_count: candidate_period_by_block
+            .len()
+            .saturating_sub(shared_blocks.len()),
+        exact_period_match_count,
+        earlier_than_reference_count,
+        later_than_reference_count,
+        mean_absolute_period_delta: if shared_blocks.is_empty() {
+            0.0
+        } else {
+            absolute_period_delta_sum as f64 / shared_blocks.len() as f64
+        },
+        max_absolute_period_delta: max_absolute_period_delta as f64,
+        largest_absolute_period_delta_examples: largest_absolute_period_delta_examples
+            .into_iter()
+            .take(10)
+            .collect(),
+    }
+}
+
 fn compare_period_memberships(
     reference: &BTreeMap<String, BTreeSet<usize>>,
     candidate: &BTreeMap<String, BTreeSet<usize>>,
@@ -7916,6 +8424,7 @@ fn build_candidate_pcpsp_solution(
 fn build_lp_bz_gap_metrics(
     bound_artifact: &LpBzBoundArtifact,
     lp_solve_artifact: &LpBzLpSolveArtifact,
+    target_score_decomposition: &lp_bz_rounder::LpBzUnitTargetScoreDecomposition,
     candidate_summary: &MarvinScheduleSolutionSummary,
     pcpsp_reference_discounted_objective: f64,
     ready_frontier_discounted_objective: f64,
@@ -7940,17 +8449,200 @@ fn build_lp_bz_gap_metrics(
         } else {
             bound_to_candidate_absolute_gap.abs() / effective_discounted_objective_bound.abs()
         };
+    let round_stage = build_lp_bz_target_score_proxy_gap_stage(
+        "round",
+        target_score_decomposition.rounded_discounted_target_score_proxy,
+        effective_discounted_objective_bound,
+    );
+    let repair_stage = build_lp_bz_target_score_proxy_gap_stage(
+        "repair",
+        target_score_decomposition.repaired_discounted_target_score_proxy,
+        effective_discounted_objective_bound,
+    );
+    let local_search_stage = build_lp_bz_target_score_proxy_gap_stage(
+        "local-search",
+        target_score_decomposition.local_search_discounted_target_score_proxy,
+        effective_discounted_objective_bound,
+    );
+    let candidate_objective_stage = build_lp_bz_objective_gap_stage(
+        "candidate-objective",
+        candidate_summary.discounted_objective,
+        effective_discounted_objective_bound,
+    );
+    let round_gap_contribution = round_stage.absolute_gap_vs_effective_bound;
+    let repair_gap_contribution =
+        repair_stage.absolute_gap_vs_effective_bound - round_stage.absolute_gap_vs_effective_bound;
+    let local_search_gap_contribution = local_search_stage.absolute_gap_vs_effective_bound
+        - repair_stage.absolute_gap_vs_effective_bound;
+    let proxy_to_candidate_objective_gap_contribution = candidate_objective_stage
+        .absolute_gap_vs_effective_bound
+        - local_search_stage.absolute_gap_vs_effective_bound;
+    let explained_bound_to_candidate_absolute_gap = round_gap_contribution
+        + repair_gap_contribution
+        + local_search_gap_contribution
+        + proxy_to_candidate_objective_gap_contribution;
+    let residual_gap_reconstruction_error =
+        bound_to_candidate_absolute_gap - explained_bound_to_candidate_absolute_gap;
+    let ready_frontier_gap_diagnostics = build_lp_bz_ready_frontier_gap_diagnostics(
+        effective_discounted_objective_bound,
+        candidate_summary.discounted_objective,
+        ready_frontier_discounted_objective,
+    );
 
     LpBzGapMetrics {
         effective_discounted_objective_bound,
         effective_bound_source,
         native_lp_kernel_discounted_objective_bound,
+        effective_bound_vs_lp_pcpsp_reference_objective_gap: pcpsp_reference_discounted_objective
+            - effective_discounted_objective_bound,
+        native_lp_kernel_vs_lp_pcpsp_reference_objective_gap:
+            native_lp_kernel_discounted_objective_bound.map(
+                |native_lp_kernel_discounted_objective_bound| {
+                    pcpsp_reference_discounted_objective
+                        - native_lp_kernel_discounted_objective_bound
+                },
+            ),
         bound_to_candidate_absolute_gap,
         bound_to_candidate_relative_gap,
+        candidate_path_target_score_proxy_decomposition: LpBzTargetScoreProxyGapDecomposition {
+            round_gap_contribution,
+            repair_gap_contribution,
+            local_search_gap_contribution,
+            proxy_to_candidate_objective_gap_contribution,
+            explained_bound_to_candidate_absolute_gap,
+            residual_gap_reconstruction_error,
+            local_search_proxy_vs_candidate_objective_gap: candidate_summary.discounted_objective
+                - target_score_decomposition.local_search_discounted_target_score_proxy,
+            round_stage,
+            repair_stage,
+            local_search_stage,
+            candidate_objective_stage,
+        },
         candidate_vs_pcpsp_reference_objective_gap: pcpsp_reference_discounted_objective
             - candidate_summary.discounted_objective,
+        ready_frontier_gap_diagnostics,
         candidate_vs_ready_frontier_objective_gap: candidate_summary.discounted_objective
             - ready_frontier_discounted_objective,
+    }
+}
+
+fn build_lp_bz_ready_frontier_gap_diagnostics(
+    effective_discounted_objective_bound: f64,
+    candidate_discounted_objective: f64,
+    ready_frontier_discounted_objective: f64,
+) -> LpBzReadyFrontierGapDiagnostics {
+    let bound_to_ready_frontier_absolute_gap =
+        effective_discounted_objective_bound - ready_frontier_discounted_objective;
+    let ready_frontier_to_candidate_absolute_gap =
+        ready_frontier_discounted_objective - candidate_discounted_objective;
+    let explained_bound_to_candidate_absolute_gap =
+        bound_to_ready_frontier_absolute_gap + ready_frontier_to_candidate_absolute_gap;
+    let residual_gap_reconstruction_error = (effective_discounted_objective_bound
+        - candidate_discounted_objective)
+        - explained_bound_to_candidate_absolute_gap;
+    let bound_to_ready_frontier_gap_share_of_bound_to_candidate_gap =
+        if explained_bound_to_candidate_absolute_gap.abs() <= f64::EPSILON {
+            0.0
+        } else {
+            bound_to_ready_frontier_absolute_gap / explained_bound_to_candidate_absolute_gap
+        };
+    let ready_frontier_to_candidate_gap_share_of_bound_to_candidate_gap =
+        if explained_bound_to_candidate_absolute_gap.abs() <= f64::EPSILON {
+            0.0
+        } else {
+            ready_frontier_to_candidate_absolute_gap / explained_bound_to_candidate_absolute_gap
+        };
+
+    LpBzReadyFrontierGapDiagnostics {
+        ready_frontier_discounted_objective,
+        bound_to_ready_frontier_absolute_gap,
+        ready_frontier_to_candidate_absolute_gap,
+        bound_to_ready_frontier_gap_share_of_bound_to_candidate_gap,
+        ready_frontier_to_candidate_gap_share_of_bound_to_candidate_gap,
+        explained_bound_to_candidate_absolute_gap,
+        residual_gap_reconstruction_error,
+        comparison_status: classify_lp_bz_ready_frontier_comparison_status(
+            ready_frontier_to_candidate_absolute_gap,
+        )
+        .to_owned(),
+        dominant_gap_driver: classify_lp_bz_ready_frontier_gap_driver(
+            bound_to_ready_frontier_absolute_gap,
+            ready_frontier_to_candidate_absolute_gap,
+        )
+        .to_owned(),
+    }
+}
+
+fn classify_lp_bz_ready_frontier_comparison_status(
+    ready_frontier_to_candidate_absolute_gap: f64,
+) -> &'static str {
+    if ready_frontier_to_candidate_absolute_gap > 1.0e-6 {
+        "candidate-trails-ready-frontier"
+    } else if ready_frontier_to_candidate_absolute_gap < -1.0e-6 {
+        "candidate-beats-ready-frontier"
+    } else {
+        "candidate-matches-ready-frontier"
+    }
+}
+
+fn classify_lp_bz_ready_frontier_gap_driver(
+    bound_to_ready_frontier_absolute_gap: f64,
+    ready_frontier_to_candidate_absolute_gap: f64,
+) -> &'static str {
+    let bound_to_ready_frontier_magnitude = bound_to_ready_frontier_absolute_gap.abs();
+    let ready_frontier_to_candidate_magnitude = ready_frontier_to_candidate_absolute_gap.abs();
+    if bound_to_ready_frontier_magnitude <= 1.0e-6
+        && ready_frontier_to_candidate_magnitude <= 1.0e-6
+    {
+        "no-gap"
+    } else if bound_to_ready_frontier_magnitude > ready_frontier_to_candidate_magnitude + 1.0e-6 {
+        "ready-frontier-vs-bound"
+    } else if ready_frontier_to_candidate_magnitude > bound_to_ready_frontier_magnitude + 1.0e-6 {
+        "candidate-vs-ready-frontier"
+    } else {
+        "split-between-ready-frontier-and-bound"
+    }
+}
+
+fn build_lp_bz_target_score_proxy_gap_stage(
+    stage_label: &str,
+    discounted_target_score_proxy: f64,
+    effective_discounted_objective_bound: f64,
+) -> LpBzTargetScoreProxyGapStage {
+    let absolute_gap_vs_effective_bound =
+        effective_discounted_objective_bound - discounted_target_score_proxy;
+    let relative_gap_vs_effective_bound =
+        if effective_discounted_objective_bound.abs() <= f64::EPSILON {
+            0.0
+        } else {
+            absolute_gap_vs_effective_bound.abs() / effective_discounted_objective_bound.abs()
+        };
+    LpBzTargetScoreProxyGapStage {
+        stage_label: stage_label.to_owned(),
+        discounted_target_score_proxy,
+        absolute_gap_vs_effective_bound,
+        relative_gap_vs_effective_bound,
+    }
+}
+
+fn build_lp_bz_objective_gap_stage(
+    stage_label: &str,
+    discounted_objective: f64,
+    effective_discounted_objective_bound: f64,
+) -> LpBzObjectiveGapStage {
+    let absolute_gap_vs_effective_bound =
+        effective_discounted_objective_bound - discounted_objective;
+    let relative_gap_vs_effective_bound =
+        if effective_discounted_objective_bound.abs() <= f64::EPSILON {
+            0.0
+        } else {
+            absolute_gap_vs_effective_bound.abs() / effective_discounted_objective_bound.abs()
+        };
+    LpBzObjectiveGapStage {
+        stage_label: stage_label.to_owned(),
+        discounted_objective,
+        absolute_gap_vs_effective_bound,
+        relative_gap_vs_effective_bound,
     }
 }
 
@@ -8042,6 +8734,37 @@ fn build_lp_bz_rounder_v6_local_optimizer_diagnostics(
             .local_optimizer_diagnostics
             .strategy_label
             .clone(),
+        local_optimizer_budget_mode_label: artifacts
+            .unit_round_repair
+            .local_optimizer_diagnostics
+            .budget_profile
+            .mode_label
+            .clone(),
+        local_optimizer_target_unit_count: artifacts
+            .unit_round_repair
+            .local_optimizer_diagnostics
+            .budget_profile
+            .target_unit_count,
+        local_optimizer_horizon_period_count: artifacts
+            .unit_round_repair
+            .local_optimizer_diagnostics
+            .budget_profile
+            .horizon_period_count,
+        local_optimizer_full_iteration_budget: artifacts
+            .unit_round_repair
+            .local_optimizer_diagnostics
+            .budget_profile
+            .full_iteration_budget,
+        local_optimizer_requested_iteration_budget: artifacts
+            .unit_round_repair
+            .local_optimizer_diagnostics
+            .budget_profile
+            .requested_iteration_budget,
+        local_optimizer_effective_iteration_budget: artifacts
+            .unit_round_repair
+            .local_optimizer_diagnostics
+            .budget_profile
+            .effective_iteration_budget,
         local_optimizer_max_iteration_count: artifacts
             .unit_round_repair
             .local_optimizer_diagnostics
@@ -8058,6 +8781,17 @@ fn build_lp_bz_rounder_v6_local_optimizer_diagnostics(
             .local_optimizer_diagnostics
             .termination_reason
             .clone(),
+        local_optimizer_residual_move_kind_label: artifacts
+            .unit_round_repair
+            .local_optimizer_diagnostics
+            .residual_opportunity
+            .move_kind_label
+            .clone(),
+        local_optimizer_residual_discounted_gain: artifacts
+            .unit_round_repair
+            .local_optimizer_diagnostics
+            .residual_opportunity
+            .discounted_gain,
         repaired_phase_target_count: artifacts.repaired_phase_target_count,
         repaired_unit_target_count: artifacts.unit_round_repair.repaired_unit_target_count,
         horizon_clamp_count: artifacts.unit_round_repair.horizon_clamp_count,
@@ -8074,6 +8808,21 @@ fn build_baseline_summary(
     candidate_summary: &MarvinScheduleSolutionSummary,
     candidate_solution: &MarvinScheduleSolution,
 ) -> SchedulingBaselineSummary {
+    let candidate_vs_reference_period_alignment =
+        compare_period_alignment(pcpsp_solution, candidate_solution);
+    let candidate_vs_reference_membership_comparison = compare_period_memberships(
+        &build_reference_period_destination_memberships(pcpsp_solution),
+        &build_reference_period_destination_memberships(candidate_solution),
+    );
+    let temporal_routing_promotion_gate = build_temporal_routing_promotion_gate_summary(
+        candidate_summary.discounted_objective,
+        pcpsp_summary.discounted_objective,
+        candidate_summary.used_period_count,
+        pcpsp_summary.used_period_count,
+        candidate_vs_reference_period_alignment.mean_absolute_period_delta,
+        candidate_vs_reference_period_alignment.earlier_than_reference_count,
+        candidate_vs_reference_membership_comparison.jaccard_index,
+    );
     SchedulingBaselineSummary {
         baseline_name: baseline_name.to_owned(),
         phase_count,
@@ -8117,10 +8866,9 @@ fn build_baseline_summary(
             ]),
             &BTreeMap::new(),
         ),
-        candidate_vs_reference_membership_comparison: compare_period_memberships(
-            &build_reference_period_destination_memberships(pcpsp_solution),
-            &build_reference_period_destination_memberships(candidate_solution),
-        ),
+        candidate_vs_reference_period_alignment,
+        temporal_routing_promotion_gate,
+        candidate_vs_reference_membership_comparison,
     }
 }
 
@@ -8132,24 +8880,28 @@ mod tests {
         LpBzPeriodBandRefinementDiagnostics, MARVIN_BENCHMARK_FOCUSED_MR187_MODE_LABEL,
         MARVIN_BENCHMARK_FOCUSED_MR187_REPORT_FILE, MARVIN_BENCHMARK_FULL_REPORT_FILE,
         MARVIN_MR187_PUSHBACK_BENCH_LOCALIZED_CUT_DEFAULT_BUILD_LABEL,
-        MR187_PROMOTED_LOCAL_FRONT_PROGRESSION_PROFILE, MarvinBenchmarkMode,
-        PUSHBACK_BENCH_LOCALIZED_CUT_UNIT_GRANULARITY_LABEL, PlanarComponentBounds,
-        PlanarComponentDescriptor, PushbackBenchLocalizedCutRefinementDiagnostics,
-        PushbackBenchLocalizedCutSweepEntry, benchmark_blocks_support,
-        build_linear_index_float_lookup, build_lp_bz_access_progression_artifacts,
-        build_lp_bz_access_progression_band_artifacts, build_mine_rs_end_to_end_artifacts,
-        build_mr187_refresh_assumptions, build_mr187_refresh_comparability_gaps,
-        build_mr187_refresh_limitations, compact_lp_bz_lp_kernel_artifact,
-        front_progression_contract_label, lp_bz_lp_kernel, marvin_support,
-        parse_marvin_benchmark_cli_args, partition_block_indices_by_cumulative_tonnage_targets,
-        partition_block_indices_by_tonnage, representative_period_by_block,
-        select_localized_planar_predecessors, split_phase_plan_by_representative_period_bands,
+        MARVIN_SELECTED_BLOCK_SOURCE, MR187_PROMOTED_LOCAL_FRONT_PROGRESSION_PROFILE,
+        MarvinBenchmarkMode, PUSHBACK_BENCH_LOCALIZED_CUT_UNIT_GRANULARITY_LABEL,
+        PlanarComponentBounds, PlanarComponentDescriptor,
+        PushbackBenchLocalizedCutRefinementDiagnostics, PushbackBenchLocalizedCutSweepEntry,
+        benchmark_blocks_support, build_linear_index_float_lookup,
+        build_lp_bz_access_progression_artifacts, build_lp_bz_access_progression_band_artifacts,
+        build_marvin_preferred_nested_shell_family_contract_for_phase_plan,
+        build_mine_rs_end_to_end_artifacts, build_mr187_refresh_assumptions,
+        build_mr187_refresh_comparability_gaps, build_mr187_refresh_limitations,
+        build_promoted_pushback_bench_localized_cut_unit_family_traceability,
+        compact_lp_bz_lp_kernel_artifact, front_progression_contract_label, lp_bz_lp_kernel,
+        marvin_support, parse_marvin_benchmark_cli_args,
+        partition_block_indices_by_cumulative_tonnage_targets, partition_block_indices_by_tonnage,
+        representative_period_by_block, select_localized_planar_predecessors,
+        split_phase_plan_by_representative_period_bands,
         split_phase_plan_by_representative_period_bands_with_link_policy,
         split_phase_plan_by_representative_period_quantiles,
         validate_lp_bz_period_band_refinement_diagnostics, validate_mr187_refresh_contract,
         validate_pushback_bench_localized_cut_calibration_sweep,
         validate_pushback_bench_localized_cut_refinement_diagnostics, write_pretty_json,
     };
+    use crate::benchmark_path_policy::BenchmarkPathPolicy;
     use mine_sdk::{ColumnId, NestingAccessRules, PhaseDesign, PushbackPlan};
     use serde_json::json;
     use std::{collections::BTreeMap, path::PathBuf};
@@ -8173,8 +8925,9 @@ mod tests {
     #[test]
     fn parse_cli_preserves_full_default_output_path() {
         let repo_root = repo_root_path();
+        let path_policy = BenchmarkPathPolicy::from_repo_root(repo_root.clone());
 
-        let cli = parse_marvin_benchmark_cli_args(&repo_root, None, std::iter::empty::<&str>())
+        let cli = parse_marvin_benchmark_cli_args(&path_policy, None, std::iter::empty::<&str>())
             .expect("default Marvin CLI should parse");
 
         assert_eq!(cli.mode, MarvinBenchmarkMode::Full);
@@ -8192,9 +8945,10 @@ mod tests {
     #[test]
     fn parse_cli_uses_focused_default_output_path_and_cli_overrides_env() {
         let repo_root = repo_root_path();
+        let path_policy = BenchmarkPathPolicy::from_repo_root(repo_root.clone());
 
         let cli = parse_marvin_benchmark_cli_args(
-            &repo_root,
+            &path_policy,
             Some("full"),
             ["--mode", MARVIN_BENCHMARK_FOCUSED_MR187_MODE_LABEL],
         )
@@ -8209,6 +8963,68 @@ mod tests {
                 .join("marvin")
                 .join("outputs")
                 .join(MARVIN_BENCHMARK_FOCUSED_MR187_REPORT_FILE)
+        );
+    }
+
+    #[test]
+    fn parse_cli_ignores_quiet_flag_without_rebinding_dataset_path() {
+        let repo_root = repo_root_path();
+        let path_policy = BenchmarkPathPolicy::from_repo_root(repo_root.clone());
+
+        let cli = parse_marvin_benchmark_cli_args(
+            &path_policy,
+            None,
+            [
+                "--mode",
+                MARVIN_BENCHMARK_FOCUSED_MR187_MODE_LABEL,
+                "--quiet",
+            ],
+        )
+        .expect("focused Marvin CLI should ignore quiet flag");
+
+        assert_eq!(cli.mode, MarvinBenchmarkMode::FocusedMr187);
+        assert_eq!(
+            cli.dataset_dir,
+            repo_root.join("datasets").join("benchmarks").join("marvin")
+        );
+        assert_eq!(
+            cli.output_path,
+            repo_root
+                .join("datasets")
+                .join("benchmarks")
+                .join("marvin")
+                .join("outputs")
+                .join(MARVIN_BENCHMARK_FOCUSED_MR187_REPORT_FILE)
+        );
+    }
+
+    #[test]
+    fn parse_cli_rebases_relative_dataset_and_output_paths_on_repo_root() {
+        let repo_root = repo_root_path();
+        let path_policy = BenchmarkPathPolicy::from_repo_root(repo_root.clone());
+
+        let cli = parse_marvin_benchmark_cli_args(
+            &path_policy,
+            None,
+            [
+                r"datasets\benchmarks\marvin",
+                r"datasets\benchmarks\marvin\outputs\custom-report.json",
+            ],
+        )
+        .expect("relative Marvin CLI paths should parse from repo root");
+
+        assert_eq!(
+            cli.dataset_dir,
+            repo_root.join("datasets").join("benchmarks").join("marvin")
+        );
+        assert_eq!(
+            cli.output_path,
+            repo_root
+                .join("datasets")
+                .join("benchmarks")
+                .join("marvin")
+                .join("outputs")
+                .join("custom-report.json")
         );
     }
 
@@ -8270,6 +9086,11 @@ mod tests {
                 && entry.contains(MARVIN_MR187_PUSHBACK_BENCH_LOCALIZED_CUT_DEFAULT_BUILD_LABEL)
                 && entry.contains(LP_BZ_UNIT_GRANULARITY_LABEL)
         }));
+        assert!(assumptions.iter().any(|entry| {
+            entry.contains("core-side")
+                && entry.contains("protocolario")
+                && entry.contains("exploratory-local")
+        }));
     }
 
     #[test]
@@ -8282,18 +9103,62 @@ mod tests {
                 && entry.contains(LP_BZ_UNIT_GRANULARITY_LABEL)
                 && entry.contains("exploratory-local")
         }));
+        assert!(limitations.iter().any(|entry| {
+            entry.contains("core-side")
+                && entry.contains("protocolario")
+                && entry.contains("benchmark-side")
+        }));
     }
 
     #[test]
     fn mr187_refresh_comparability_gaps_reference_promoted_family() {
-        let gaps = build_mr187_refresh_comparability_gaps();
+        let phase_plan = PushbackPlan {
+            phases: vec![PhaseDesign {
+                phase_id: "phase-a".to_owned(),
+                pushback_index: 0,
+                shell_index: Some(0),
+                revenue_factor: Some(1.0),
+                bench: Some(100),
+                block_indices: vec![1, 2, 3],
+                block_count: 3,
+                total_tonnage: Some(6.0),
+                predecessor_phase_ids: Vec::new(),
+            }],
+            phase_count: 1,
+            total_block_count: 3,
+            total_tonnage: Some(6.0),
+            nesting_rules: NestingAccessRules::default_open(),
+            limitations: Vec::new(),
+        };
+        let preferred_shell_family =
+            build_marvin_preferred_nested_shell_family_contract_for_phase_plan(7, &phase_plan)
+                .expect("preferred shell family should build");
+        let traceability = build_promoted_pushback_bench_localized_cut_unit_family_traceability(
+            MARVIN_SELECTED_BLOCK_SOURCE,
+            3,
+            &preferred_shell_family.aggregation_strategy,
+            Some(&preferred_shell_family),
+            phase_plan.phase_count,
+            LP_BZ_UNIT_GRANULARITY_LABEL,
+            PUSHBACK_BENCH_LOCALIZED_CUT_UNIT_GRANULARITY_LABEL,
+            MARVIN_MR187_PUSHBACK_BENCH_LOCALIZED_CUT_DEFAULT_BUILD_LABEL,
+            MR187_PROMOTED_LOCAL_FRONT_PROGRESSION_PROFILE.label,
+            2,
+            2,
+        );
+        let gaps = build_mr187_refresh_comparability_gaps(&traceability);
 
         assert!(gaps.iter().any(|entry| {
             entry.contains(PUSHBACK_BENCH_LOCALIZED_CUT_UNIT_GRANULARITY_LABEL)
                 && entry.contains(MARVIN_MR187_PUSHBACK_BENCH_LOCALIZED_CUT_DEFAULT_BUILD_LABEL)
                 && entry.contains(LP_BZ_UNIT_GRANULARITY_LABEL)
-                && entry.contains("cpit-solution")
-                && entry.contains("nested-shell-bench")
+                && entry.contains(MARVIN_SELECTED_BLOCK_SOURCE)
+                && entry.contains(&traceability.preferred_phase_plan_proxy.aggregation_strategy)
+        }));
+        assert!(gaps.iter().any(|entry| {
+            entry.contains("core-side")
+                && entry.contains("protocolaria")
+                && entry.contains("exploratory-local")
         }));
     }
 
@@ -8592,11 +9457,67 @@ mod tests {
             effective_discounted_objective_bound: 100.0,
             effective_bound_source: "native-resource-envelope".to_owned(),
             native_lp_kernel_discounted_objective_bound: Some(100.0),
+            effective_bound_vs_lp_pcpsp_reference_objective_gap: 5.0,
+            native_lp_kernel_vs_lp_pcpsp_reference_objective_gap: Some(5.0),
             bound_to_candidate_absolute_gap: 10.0,
             bound_to_candidate_relative_gap: 0.1,
+            candidate_path_target_score_proxy_decomposition:
+                super::LpBzTargetScoreProxyGapDecomposition {
+                    round_stage: super::LpBzTargetScoreProxyGapStage {
+                        stage_label: "round".to_owned(),
+                        discounted_target_score_proxy: 98.0,
+                        absolute_gap_vs_effective_bound: 2.0,
+                        relative_gap_vs_effective_bound: 0.02,
+                    },
+                    repair_stage: super::LpBzTargetScoreProxyGapStage {
+                        stage_label: "repair".to_owned(),
+                        discounted_target_score_proxy: 94.0,
+                        absolute_gap_vs_effective_bound: 6.0,
+                        relative_gap_vs_effective_bound: 0.06,
+                    },
+                    local_search_stage: super::LpBzTargetScoreProxyGapStage {
+                        stage_label: "local-search".to_owned(),
+                        discounted_target_score_proxy: 96.0,
+                        absolute_gap_vs_effective_bound: 4.0,
+                        relative_gap_vs_effective_bound: 0.04,
+                    },
+                    candidate_objective_stage: super::LpBzObjectiveGapStage {
+                        stage_label: "candidate-objective".to_owned(),
+                        discounted_objective: 90.0,
+                        absolute_gap_vs_effective_bound: 10.0,
+                        relative_gap_vs_effective_bound: 0.1,
+                    },
+                    round_gap_contribution: 2.0,
+                    repair_gap_contribution: 4.0,
+                    local_search_gap_contribution: -2.0,
+                    proxy_to_candidate_objective_gap_contribution: 6.0,
+                    explained_bound_to_candidate_absolute_gap: 10.0,
+                    residual_gap_reconstruction_error: 0.0,
+                    local_search_proxy_vs_candidate_objective_gap: -6.0,
+                },
             candidate_vs_pcpsp_reference_objective_gap: 5.0,
+            ready_frontier_gap_diagnostics: super::LpBzReadyFrontierGapDiagnostics {
+                ready_frontier_discounted_objective: 88.5,
+                bound_to_ready_frontier_absolute_gap: 11.5,
+                ready_frontier_to_candidate_absolute_gap: -1.5,
+                bound_to_ready_frontier_gap_share_of_bound_to_candidate_gap: 1.15,
+                ready_frontier_to_candidate_gap_share_of_bound_to_candidate_gap: -0.15,
+                explained_bound_to_candidate_absolute_gap: 10.0,
+                residual_gap_reconstruction_error: 0.0,
+                comparison_status: "candidate-beats-ready-frontier".to_owned(),
+                dominant_gap_driver: "ready-frontier-vs-bound".to_owned(),
+            },
             candidate_vs_ready_frontier_objective_gap: 1.5,
         };
+        let promotion_gate = super::build_temporal_routing_promotion_gate_summary(
+            candidate_summary.discounted_objective,
+            85.0,
+            candidate_summary.used_period_count,
+            4,
+            2.0,
+            800,
+            0.1,
+        );
 
         validate_mr187_refresh_contract(
             MARVIN_BENCHMARK_FOCUSED_MR187_MODE_LABEL,
@@ -8604,8 +9525,284 @@ mod tests {
             &gap_metrics,
             "exploratory-local",
             &[String::from("benchmark-side local-front normalization")],
+            &promotion_gate,
         )
         .expect("synthetic focused MR-187 contract should validate");
+    }
+
+    #[test]
+    fn validate_mr187_refresh_contract_rejects_inconsistent_ready_frontier_gap_driver() {
+        let candidate_summary = marvin_support::MarvinScheduleSolutionSummary {
+            assignment_count: 2,
+            unique_block_count: 2,
+            fractional_assignment_count: 0,
+            used_period_count: 2,
+            used_destination_count: 1,
+            total_fraction: 2.0,
+            min_block_fraction_sum: 1.0,
+            max_block_fraction_sum: 1.0,
+            undiscounted_objective: 90.0,
+            discounted_objective: 90.0,
+            resource_summaries: Vec::new(),
+        };
+        let bound_artifact = crate::lp_bz_bound::LpBzBoundArtifact {
+            bound_label: "fixture".to_owned(),
+            discounted_objective_bound: 105.0,
+            period_count: 2,
+            resource_constraint_count: 1,
+            destination_count: 1,
+            unit_count: 2,
+            bound_strategy: "fixture".to_owned(),
+            lp_proxy_discounted_objective: 110.0,
+            native_block_objective_upper_bound: 108.0,
+            native_resource_density_upper_bound: Some(105.0),
+            native_resource_knapsack_upper_bound: Some(106.0),
+            discount_inverse_upper_bound: 1.0,
+        };
+        let lp_solve_artifact = lp_bz_lp_kernel::LpBzLpSolveArtifact {
+            solver_label: "native".to_owned(),
+            solve_status: lp_bz_lp_kernel::LpBzLpSolveStatus::Optimal,
+            discounted_objective_bound: Some(102.0),
+            variable_count: 2,
+            active_variable_count: 2,
+            min_positive_variable_value: Some(0.25),
+            max_variable_value: Some(1.0),
+            precedence_diagnostics: lp_bz_lp_kernel::LpBzPrecedenceSolveDiagnostics {
+                strategy: lp_bz_lp_kernel::LpBzPrecedenceEnforcementStrategy::None,
+                max_enforced_precedence_rows: 0,
+                total_precedence_rows: 0,
+                enforced_precedence_rows: 0,
+                skipped_precedence_rows: 0,
+                coverage_completeness:
+                    lp_bz_lp_kernel::LpBzPrecedenceCoverageCompleteness::NotApplicable,
+                coverage_basis_points: None,
+                enforced_period_indices: Vec::new(),
+                skipped_period_indices: Vec::new(),
+            },
+            cut_diagnostics: lp_bz_lp_kernel::LpBzCutSolveDiagnostics {
+                strategy: lp_bz_lp_kernel::LpBzCutTighteningStrategy::PrecedenceCumulativePrefix,
+                total_generated_row_count: 2,
+                total_applied_row_count: 2,
+                total_skipped_row_count: 0,
+                families: Vec::new(),
+            },
+            limitations: Vec::new(),
+        };
+        let mut gap_metrics = super::build_lp_bz_gap_metrics(
+            &bound_artifact,
+            &lp_solve_artifact,
+            &crate::lp_bz_rounder::LpBzUnitTargetScoreDecomposition {
+                rounded_discounted_target_score_proxy: 98.0,
+                repaired_discounted_target_score_proxy: 94.0,
+                local_search_discounted_target_score_proxy: 96.0,
+                repair_score_delta_vs_round_proxy: -4.0,
+                local_search_score_delta_vs_repair_proxy: 2.0,
+                local_search_score_delta_vs_round_proxy: -2.0,
+            },
+            &candidate_summary,
+            120.0,
+            88.0,
+        );
+        gap_metrics
+            .ready_frontier_gap_diagnostics
+            .dominant_gap_driver = "candidate-vs-ready-frontier".to_owned();
+        let promotion_gate = super::build_temporal_routing_promotion_gate_summary(
+            candidate_summary.discounted_objective,
+            85.0,
+            candidate_summary.used_period_count,
+            4,
+            2.0,
+            800,
+            0.1,
+        );
+
+        let error = validate_mr187_refresh_contract(
+            MARVIN_BENCHMARK_FOCUSED_MR187_MODE_LABEL,
+            &candidate_summary,
+            &gap_metrics,
+            "exploratory-local",
+            &[String::from("benchmark-side local-front normalization")],
+            &promotion_gate,
+        )
+        .expect_err("inconsistent ready-frontier gap driver should be rejected");
+
+        assert!(
+            error.to_string().contains("dominant gap driver"),
+            "validation error should explain the ready-frontier gap-driver inconsistency"
+        );
+    }
+
+    #[test]
+    fn build_lp_bz_gap_metrics_surfaces_effective_and_native_gap_vs_lp_pcpsp_reference() {
+        let bound_artifact = crate::lp_bz_bound::LpBzBoundArtifact {
+            bound_label: "fixture".to_owned(),
+            discounted_objective_bound: 105.0,
+            period_count: 2,
+            resource_constraint_count: 1,
+            destination_count: 1,
+            unit_count: 2,
+            bound_strategy: "fixture".to_owned(),
+            lp_proxy_discounted_objective: 110.0,
+            native_block_objective_upper_bound: 108.0,
+            native_resource_density_upper_bound: Some(105.0),
+            native_resource_knapsack_upper_bound: Some(106.0),
+            discount_inverse_upper_bound: 1.0,
+        };
+        let lp_solve_artifact = lp_bz_lp_kernel::LpBzLpSolveArtifact {
+            solver_label: "minilp".to_owned(),
+            solve_status: lp_bz_lp_kernel::LpBzLpSolveStatus::Optimal,
+            discounted_objective_bound: Some(102.0),
+            variable_count: 2,
+            active_variable_count: 2,
+            min_positive_variable_value: Some(0.5),
+            max_variable_value: Some(1.0),
+            precedence_diagnostics: lp_bz_lp_kernel::LpBzPrecedenceSolveDiagnostics {
+                strategy: lp_bz_lp_kernel::LpBzPrecedenceEnforcementStrategy::FullPerPeriod,
+                max_enforced_precedence_rows: 4,
+                total_precedence_rows: 4,
+                enforced_precedence_rows: 4,
+                skipped_precedence_rows: 0,
+                coverage_completeness:
+                    lp_bz_lp_kernel::LpBzPrecedenceCoverageCompleteness::Complete,
+                coverage_basis_points: Some(10_000),
+                enforced_period_indices: vec![0, 1],
+                skipped_period_indices: Vec::new(),
+            },
+            cut_diagnostics: lp_bz_lp_kernel::LpBzCutSolveDiagnostics {
+                strategy: lp_bz_lp_kernel::LpBzCutTighteningStrategy::PrecedenceCumulativePrefix,
+                total_generated_row_count: 2,
+                total_applied_row_count: 2,
+                total_skipped_row_count: 0,
+                families: Vec::new(),
+            },
+            limitations: Vec::new(),
+        };
+        let candidate_summary = marvin_support::MarvinScheduleSolutionSummary {
+            assignment_count: 2,
+            unique_block_count: 2,
+            fractional_assignment_count: 0,
+            used_period_count: 2,
+            used_destination_count: 1,
+            total_fraction: 2.0,
+            min_block_fraction_sum: 1.0,
+            max_block_fraction_sum: 1.0,
+            undiscounted_objective: 90.0,
+            discounted_objective: 90.0,
+            resource_summaries: Vec::new(),
+        };
+
+        let gap_metrics = super::build_lp_bz_gap_metrics(
+            &bound_artifact,
+            &lp_solve_artifact,
+            &crate::lp_bz_rounder::LpBzUnitTargetScoreDecomposition {
+                rounded_discounted_target_score_proxy: 98.0,
+                repaired_discounted_target_score_proxy: 94.0,
+                local_search_discounted_target_score_proxy: 96.0,
+                repair_score_delta_vs_round_proxy: -4.0,
+                local_search_score_delta_vs_repair_proxy: 2.0,
+                local_search_score_delta_vs_round_proxy: -2.0,
+            },
+            &candidate_summary,
+            120.0,
+            88.0,
+        );
+
+        assert_eq!(
+            gap_metrics.effective_bound_source,
+            "min(native-resource-envelope, native-lp-kernel)"
+        );
+        assert_eq!(gap_metrics.effective_discounted_objective_bound, 102.0);
+        assert_eq!(
+            gap_metrics.effective_bound_vs_lp_pcpsp_reference_objective_gap,
+            18.0
+        );
+        assert_eq!(
+            gap_metrics.native_lp_kernel_vs_lp_pcpsp_reference_objective_gap,
+            Some(18.0)
+        );
+        assert_eq!(
+            gap_metrics
+                .candidate_path_target_score_proxy_decomposition
+                .round_gap_contribution,
+            4.0
+        );
+        assert_eq!(
+            gap_metrics
+                .candidate_path_target_score_proxy_decomposition
+                .repair_gap_contribution,
+            4.0
+        );
+        assert_eq!(
+            gap_metrics
+                .candidate_path_target_score_proxy_decomposition
+                .local_search_gap_contribution,
+            -2.0
+        );
+        assert_eq!(
+            gap_metrics
+                .candidate_path_target_score_proxy_decomposition
+                .candidate_objective_stage
+                .absolute_gap_vs_effective_bound,
+            12.0
+        );
+        assert_eq!(
+            gap_metrics
+                .candidate_path_target_score_proxy_decomposition
+                .proxy_to_candidate_objective_gap_contribution,
+            6.0
+        );
+        assert_eq!(
+            gap_metrics
+                .candidate_path_target_score_proxy_decomposition
+                .explained_bound_to_candidate_absolute_gap,
+            12.0
+        );
+        assert_eq!(
+            gap_metrics
+                .candidate_path_target_score_proxy_decomposition
+                .residual_gap_reconstruction_error,
+            0.0
+        );
+        assert_eq!(gap_metrics.candidate_vs_pcpsp_reference_objective_gap, 30.0);
+        assert_eq!(
+            gap_metrics
+                .ready_frontier_gap_diagnostics
+                .bound_to_ready_frontier_absolute_gap,
+            14.0
+        );
+        assert_eq!(
+            gap_metrics
+                .ready_frontier_gap_diagnostics
+                .ready_frontier_to_candidate_absolute_gap,
+            -2.0
+        );
+        assert!(
+            (gap_metrics
+                .ready_frontier_gap_diagnostics
+                .bound_to_ready_frontier_gap_share_of_bound_to_candidate_gap
+                - (14.0 / 12.0))
+                .abs()
+                < 1.0e-9
+        );
+        assert!(
+            (gap_metrics
+                .ready_frontier_gap_diagnostics
+                .ready_frontier_to_candidate_gap_share_of_bound_to_candidate_gap
+                - (-2.0 / 12.0))
+                .abs()
+                < 1.0e-9
+        );
+        assert_eq!(
+            gap_metrics.ready_frontier_gap_diagnostics.comparison_status,
+            "candidate-beats-ready-frontier"
+        );
+        assert_eq!(
+            gap_metrics
+                .ready_frontier_gap_diagnostics
+                .dominant_gap_driver,
+            "ready-frontier-vs-bound"
+        );
+        assert_eq!(gap_metrics.candidate_vs_ready_frontier_objective_gap, 2.0);
     }
 
     #[test]

@@ -1,0 +1,19 @@
+[package]
+name = "mine-benchmarks"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+bench = false
+
+[dev-dependencies]
+mine-sdk = { path = "../crates/mine-sdk" }
+criterion = { workspace = true }
+
+[[bench]]
+name = "core_operations"
+harness = false
+
+[lints]
+workspace = true

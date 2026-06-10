@@ -2,9 +2,11 @@
 
 mod benches;
 mod comparison;
+mod cpit_toposort;
 mod decomposed_scheduling;
 mod long_term_schedule;
 mod max_closure;
+mod pcpsp_toposort;
 mod phase_design;
 mod phases;
 mod pit_shells;
@@ -25,6 +27,10 @@ pub use comparison::{
     NumericMetricTolerance, PrecedenceGraphComparisonReport, compare_block_memberships,
     compare_named_numeric_metrics, compare_precedence_graphs, compare_upit_reports,
 };
+pub use cpit_toposort::{
+    CpitToposortAssignment, CpitToposortOptions, CpitToposortProblem, CpitToposortSchedule,
+    solve_cpit_with_toposort,
+};
 pub use decomposed_scheduling::{
     DecomposedSchedulingArtifacts, DecomposedSchedulingConfig, DecomposedTemporalSolver,
     solve_decomposed_scheduling_problem,
@@ -40,6 +46,10 @@ pub use long_term_schedule::{
 pub use max_closure::{
     MaxClosureArc, MaxClosureArcKind, MaxClosureGraph, MaxClosureNodeId, build_max_closure_graph,
     verify_closure,
+};
+pub use pcpsp_toposort::{
+    PcpspToposortAssignment, PcpspToposortOptions, PcpspToposortProblem, PcpspToposortSchedule,
+    solve_pcpsp_with_toposort,
 };
 pub use phase_design::{
     NestingAccessRules, PhaseDesign, PushbackPlan, derive_phase_design_from_nested_shells,

@@ -164,7 +164,7 @@ pub fn value_block_by_destinations(
 
     let best = results
         .iter()
-        .max_by(|a, b| a.block_value.partial_cmp(&b.block_value).unwrap())
+        .max_by(|a, b| a.block_value.total_cmp(&b.block_value))
         .expect("results is non-empty");
 
     let best_destination_id = best.destination_id.clone();

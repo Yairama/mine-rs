@@ -197,6 +197,7 @@ pub struct PushbackBenchLocalizedCutPreferredPhasePlanProxyTraceability {
     pub preferred_nested_shell_factor_count: Option<usize>,
     pub preferred_nested_shell_realized_shell_count: Option<usize>,
     pub preferred_nested_shell_access_mode: Option<String>,
+    pub preferred_phase_count: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -206,6 +207,8 @@ pub struct PushbackBenchLocalizedCutLocalizedCutBuilderTraceability {
     pub scaffold_unit_family_label: String,
     pub promoted_unit_family_label: String,
     pub front_progression_label: String,
+    pub promoted_cut_phase_count: Option<usize>,
+    pub scheduling_unit_count: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -473,6 +476,7 @@ pub fn build_marvin_mr187_promoted_pushback_bench_localized_cut_contract_surface
     preferred_nested_shell_family_contract: Option<&MarvinPreferredNestedShellFamilyContract>,
     promoted_unit_family_label: &str,
     diagnostics: &PushbackBenchLocalizedCutRefinementDiagnostics,
+    scheduling_unit_count: usize,
 ) -> MarvinMr187PromotedPushbackBenchLocalizedCutContractSurfaces {
     let promoted_build_label = MARVIN_MR187_PUSHBACK_BENCH_LOCALIZED_CUT_PROMOTED_BUILD_LABEL;
     let scaffold_unit_family_label = MARVIN_MR187_LOCAL_OPTIMIZER_SCAFFOLD_UNIT_FAMILY_LABEL;
@@ -486,10 +490,13 @@ pub fn build_marvin_mr187_promoted_pushback_bench_localized_cut_contract_surface
                 selected_block_count,
                 preferred_phase_plan_aggregation_strategy,
                 preferred_nested_shell_family_contract,
+                diagnostics.base_phase_count,
                 scaffold_unit_family_label,
                 promoted_unit_family_label,
                 promoted_build_label,
                 front_progression_label,
+                diagnostics.total_cut_phase_count,
+                scheduling_unit_count,
             ),
         access_law: summarize_marvin_mr187_promoted_pushback_bench_localized_cut_access_law(
             diagnostics,
@@ -502,10 +509,13 @@ pub fn build_promoted_pushback_bench_localized_cut_unit_family_traceability(
     selected_block_count: usize,
     preferred_phase_plan_aggregation_strategy: &str,
     preferred_nested_shell_family_contract: Option<&MarvinPreferredNestedShellFamilyContract>,
+    preferred_phase_count: usize,
     scaffold_unit_family_label: &str,
     promoted_unit_family_label: &str,
     promoted_build_label: &str,
     front_progression_label: &str,
+    promoted_cut_phase_count: usize,
+    scheduling_unit_count: usize,
 ) -> PushbackBenchLocalizedCutUnitFamilyTraceability {
     let selected_block_provenance = PushbackBenchLocalizedCutSelectedBlockSourceTraceability {
         selected_block_source: selected_block_source.to_owned(),
@@ -519,6 +529,7 @@ pub fn build_promoted_pushback_bench_localized_cut_unit_family_traceability(
             .and_then(|contract| contract.realized_shell_count),
         preferred_nested_shell_access_mode: preferred_nested_shell_family_contract
             .map(|contract| contract.shell_access_mode.label().to_owned()),
+        preferred_phase_count: Some(preferred_phase_count),
     };
     let localized_cut_builder_provenance =
         PushbackBenchLocalizedCutLocalizedCutBuilderTraceability {
@@ -528,10 +539,12 @@ pub fn build_promoted_pushback_bench_localized_cut_unit_family_traceability(
             scaffold_unit_family_label: scaffold_unit_family_label.to_owned(),
             promoted_unit_family_label: promoted_unit_family_label.to_owned(),
             front_progression_label: front_progression_label.to_owned(),
+            promoted_cut_phase_count: Some(promoted_cut_phase_count),
+            scheduling_unit_count: Some(scheduling_unit_count),
         };
     let preferred_phase_summary = match preferred_nested_shell_family_contract {
         Some(contract) => format!(
-            "The preferred `{}` proxy phase family keeps {} revenue factors on `{}` access and realizes {} shells when lifted from the selected block set.",
+            "The preferred `{}` proxy phase family keeps {} revenue factors on `{}` access, realizes {} shells, and materializes {preferred_phase_count} shell×bench pushback phases when lifted from the selected block set.",
             preferred_phase_plan_aggregation_strategy,
             contract.revenue_factor_count,
             contract.shell_access_mode.label(),
@@ -546,7 +559,7 @@ pub fn build_promoted_pushback_bench_localized_cut_unit_family_traceability(
         ),
     };
     let derivation_summary = format!(
-        "The promoted `{}` family keeps `selected_block_source = \"{}\"` ({selected_block_count} selected blocks) as its block provenance, reuses the preferred `{}` proxy phase family, and then applies `{}` / build `{}` to refine scaffold `{}` into the promoted localized-cut units under `{}` progression.",
+        "The promoted `{}` family keeps `selected_block_source = \"{}\"` ({selected_block_count} selected blocks) as its block provenance contract, reuses the preferred `{}` proxy phase family as a {preferred_phase_count}-phase pushback/bench bridge, and then applies `{}` / build `{}` to refine scaffold `{}` into {promoted_cut_phase_count} promoted localized-cut phases under `{}` progression, yielding {scheduling_unit_count} LP/BZ scheduling units before scheduling.",
         promoted_unit_family_label,
         selected_block_source,
         preferred_phase_plan_aggregation_strategy,
@@ -565,7 +578,7 @@ pub fn build_promoted_pushback_bench_localized_cut_unit_family_traceability(
                 step_id: "selected-block-source".to_owned(),
                 stage_label: "Selected block source".to_owned(),
                 summary: format!(
-                    "The promoted family only traces the {selected_block_count} blocks already admitted by `selected_block_source = \"{}\"`.",
+                    "The promoted family only traces the {selected_block_count} blocks admitted by the explicit `selected_block_source = \"{}\"` contract.",
                     selected_block_source,
                 ),
             },
@@ -578,11 +591,18 @@ pub fn build_promoted_pushback_bench_localized_cut_unit_family_traceability(
                 step_id: "localized-cut-builder".to_owned(),
                 stage_label: "Localized-cut builder".to_owned(),
                 summary: format!(
-                    "Builder `{}` / build `{}` refines scaffold `{}` into promoted `{}` units while preserving benchmark-side localized-cut semantics.",
+                    "Builder `{}` / build `{}` refines scaffold `{}` into {promoted_cut_phase_count} promoted `{}` mining-cut phases while preserving benchmark-side localized-cut semantics.",
                     MARVIN_MR187_PUSHBACK_BENCH_LOCALIZED_CUT_BUILDER_LABEL,
                     promoted_build_label,
                     scaffold_unit_family_label,
                     promoted_unit_family_label,
+                ),
+            },
+            PushbackBenchLocalizedCutUnitFamilyTraceabilityStep {
+                step_id: "scheduling-handoff".to_owned(),
+                stage_label: "Scheduling handoff".to_owned(),
+                summary: format!(
+                    "Those {promoted_cut_phase_count} promoted mining-cut phases currently materialize {scheduling_unit_count} LP/BZ scheduling units for the downstream scheduling route."
                 ),
             },
         ],
@@ -657,12 +677,22 @@ pub fn format_promoted_pushback_bench_localized_cut_input_aggregation_gap_summar
             .preferred_nested_shell_realized_shell_count,
     ) {
         (Some(factor_count), Some(access_mode), Some(realized_shell_count)) => format!(
-            "the bounded `{}` bridge keeps {factor_count} revenue factors on `{access_mode}` access and realizes {realized_shell_count} shells before localized-cut refinement",
+            "the bounded `{}` bridge keeps {factor_count} revenue factors on `{access_mode}` access, realizes {realized_shell_count} shells, and materializes {} shell×bench pushback phases before localized-cut refinement",
             traceability.preferred_phase_plan_proxy.aggregation_strategy,
+            traceability
+                .preferred_phase_plan_proxy
+                .preferred_phase_count
+                .map(|count| count.to_string())
+                .unwrap_or_else(|| "an unreported number of".to_owned()),
         ),
         (Some(factor_count), Some(access_mode), None) => format!(
-            "the bounded `{}` bridge keeps {factor_count} revenue factors on `{access_mode}` access before localized-cut refinement",
+            "the bounded `{}` bridge keeps {factor_count} revenue factors on `{access_mode}` access and materializes {} shell×bench pushback phases before localized-cut refinement",
             traceability.preferred_phase_plan_proxy.aggregation_strategy,
+            traceability
+                .preferred_phase_plan_proxy
+                .preferred_phase_count
+                .map(|count| count.to_string())
+                .unwrap_or_else(|| "an unreported number of".to_owned()),
         ),
         _ => format!(
             "the preferred `{}` bridge remains the benchmark-side aggregation proxy before localized-cut refinement",
@@ -676,7 +706,7 @@ pub fn format_promoted_pushback_bench_localized_cut_input_aggregation_gap_summar
             scheduling_unit_count,
         );
     format!(
-        "Input/aggregation traceability now stays explicit across three benchmark-side layers: `selected_block_source = \"{}\"` seeds the admissible block set; {}; and builder `{}` / build `{}` refines scaffold `{}` into promoted `{}` units under `{}` progression. {} The route remains `exploratory-local` because the block provenance still starts from a staged benchmark-side selection and the intermediate shell family is still a reproducible proxy rather than a paper-reproduced pushback/mining-cut pipeline.",
+        "Input/aggregation traceability now stays explicit across the benchmark-side paper-like chain `shells -> pushbacks -> mining-cuts -> scheduling`: `selected_block_source = \"{}\"` names the admissible shell-derived block contract; {}; and builder `{}` / build `{}` refines scaffold `{}` into promoted `{}` units under `{}` progression before scheduling. {} The route remains `exploratory-local` because this provenance is still a bounded benchmark-side reconstruction rather than a paper-reproduced shell generator plus calibrated mining-cut workflow.",
         traceability.selected_block_provenance.selected_block_source,
         shell_bridge_summary,
         traceability
@@ -704,9 +734,17 @@ pub fn format_promoted_pushback_bench_localized_cut_aggregation_jump_summary(
     scheduling_unit_count: usize,
 ) -> String {
     match traceability.selected_block_provenance.selected_block_count {
-        Some(selected_block_count) => format!(
-            "Quantitatively, {selected_block_count} selected blocks currently compress into {promoted_phase_count} promoted phases and {scheduling_unit_count} LP/BZ scheduling units."
-        ),
+        Some(selected_block_count) => match traceability
+            .preferred_phase_plan_proxy
+            .preferred_phase_count
+        {
+            Some(preferred_phase_count) => format!(
+                "Quantitatively, {selected_block_count} selected blocks currently lift into {preferred_phase_count} shell×bench pushback phases, which then refine into {promoted_phase_count} promoted mining-cut phases and {scheduling_unit_count} LP/BZ scheduling units."
+            ),
+            None => format!(
+                "Quantitatively, {selected_block_count} selected blocks currently compress into {promoted_phase_count} promoted mining-cut phases and {scheduling_unit_count} LP/BZ scheduling units."
+            ),
+        },
         None => format!(
             "Quantitatively, the promoted family currently exposes {promoted_phase_count} promoted phases and {scheduling_unit_count} LP/BZ scheduling units, but `selected_block_count` is still missing from provenance."
         ),
@@ -789,9 +827,21 @@ pub fn validate_promoted_pushback_bench_localized_cut_unit_family_traceability(
             .preferred_phase_plan_proxy
             .preferred_nested_shell_access_mode
             .is_none()
+        || summary
+            .preferred_phase_plan_proxy
+            .preferred_phase_count
+            .is_none()
+        || summary
+            .localized_cut_builder_provenance
+            .promoted_cut_phase_count
+            .is_none()
+        || summary
+            .localized_cut_builder_provenance
+            .scheduling_unit_count
+            .is_none()
     {
         return Err(MineError::validation(
-            "Promoted localized-cut unit family traceability must keep explicit nested-shell factor/access evidence."
+            "Promoted localized-cut unit family traceability must keep explicit shells -> pushbacks -> mining-cuts -> scheduling counts."
                 .to_owned(),
         ));
     }
@@ -799,6 +849,7 @@ pub fn validate_promoted_pushback_bench_localized_cut_unit_family_traceability(
         "selected-block-source",
         "preferred-phase-plan-proxy",
         "localized-cut-builder",
+        "scheduling-handoff",
     ];
     if summary.derivation_steps.len() != expected_ids.len() {
         return Err(MineError::validation(format!(
@@ -2270,7 +2321,9 @@ mod tests {
         validate_promoted_pushback_bench_localized_cut_access_law_contract,
         validate_promoted_pushback_bench_localized_cut_unit_family_traceability,
     };
-    use crate::minelib_scheduling_support::build_marvin_preferred_nested_shell_family_contract;
+    use crate::minelib_scheduling_support::{
+        MARVIN_SELECTED_BLOCK_SOURCE, build_marvin_preferred_nested_shell_family_contract,
+    };
     use crate::{
         benchmark_blocks_support, build_linear_index_float_lookup,
         build_mine_rs_end_to_end_artifacts, build_phase_scheduling_problem_from_marvin_problem,
@@ -2954,7 +3007,7 @@ mod tests {
             unit_family_traceability: traceability,
             access_law,
         } = build_marvin_mr187_promoted_pushback_bench_localized_cut_contract_surfaces(
-            "cpit-solution",
+            MARVIN_SELECTED_BLOCK_SOURCE,
             8_516,
             "nested-shell-bench",
             Some(&preferred_shell_family),
@@ -2983,6 +3036,7 @@ mod tests {
                 refined_base_phase_examples: vec!["phase-a".to_owned()],
                 refined_single_component_phase_examples: vec!["phase-b".to_owned()],
             },
+            12,
         );
         assert_eq!(
             promoted_build_label,
@@ -2992,7 +3046,7 @@ mod tests {
         assert!(
             validate_promoted_pushback_bench_localized_cut_unit_family_traceability(
                 &traceability,
-                "cpit-solution",
+                MARVIN_SELECTED_BLOCK_SOURCE,
                 8_516,
                 "nested-shell-bench",
                 "shape-gated-local-front-phase",
@@ -3008,7 +3062,9 @@ mod tests {
             "shape-gated-local-front-phase",
             &access_law,
         );
-        assert!(family_summary.contains("selected_block_source = \"cpit-solution\""));
+        assert!(family_summary.contains(&format!(
+            "selected_block_source = \"{MARVIN_SELECTED_BLOCK_SOURCE}\""
+        )));
         assert!(family_summary.contains("nested-shell-bench"));
         assert!(family_summary.contains("pushback-bench-localized-mining-cuts"));
         let input_gap_summary =
@@ -3017,11 +3073,13 @@ mod tests {
                 18,
                 12,
             );
-        assert!(input_gap_summary.contains("selected_block_source = \"cpit-solution\""));
+        assert!(input_gap_summary.contains(&format!(
+            "selected_block_source = \"{MARVIN_SELECTED_BLOCK_SOURCE}\""
+        )));
         assert!(input_gap_summary.contains("8516"));
         assert!(input_gap_summary.contains("nested-shell-bench"));
         assert!(input_gap_summary.contains(
-            "Quantitatively, 8516 selected blocks currently compress into 18 promoted phases and 12 LP/BZ scheduling units."
+            "Quantitatively, 8516 selected blocks currently lift into 10 shell×bench pushback phases, which then refine into 18 promoted mining-cut phases and 12 LP/BZ scheduling units."
         ));
         assert!(input_gap_summary.contains(promoted_build_label));
         assert!(input_gap_summary.contains("shape-gated-local-front-phase"));
@@ -3121,21 +3179,24 @@ mod tests {
             .expect("preferred shell family should build")
             .with_realized_shell_count(5);
         let mut traceability = build_promoted_pushback_bench_localized_cut_unit_family_traceability(
-            "cpit-solution",
+            MARVIN_SELECTED_BLOCK_SOURCE,
             8_516,
             "nested-shell-bench",
             Some(&preferred_shell_family),
+            10,
             "shape-gated-local-front-phase",
             "pushback-bench-localized-cut-phase",
             MARVIN_MR187_PUSHBACK_BENCH_LOCALIZED_CUT_PROMOTED_BUILD_LABEL,
             MARVIN_MR187_PROMOTED_LOCAL_FRONT_PROGRESSION_LABEL,
+            18,
+            12,
         );
         traceability.selected_block_provenance.selected_block_source =
             "manual-selection".to_owned();
 
         let error = validate_promoted_pushback_bench_localized_cut_unit_family_traceability(
             &traceability,
-            "cpit-solution",
+            MARVIN_SELECTED_BLOCK_SOURCE,
             8_516,
             "nested-shell-bench",
             "shape-gated-local-front-phase",

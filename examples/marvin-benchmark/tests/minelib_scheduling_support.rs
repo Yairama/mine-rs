@@ -14,7 +14,9 @@ use marvin_support::{
 };
 use mine_sdk::{ColumnId, NestingAccessRules, PhaseDesign, PushbackPlan, uniform_revenue_factors};
 use minelib_scheduling_support::{
-    NestedShellAccessMode, build_linear_index_to_row_index,
+    MARVIN_PAPERLIKE_PROVENANCE_CHAIN, MARVIN_SELECTED_BLOCK_SOURCE,
+    MCLAUGHLIN_LIMIT_COMPARABLE_PROVENANCE_CHAIN, MCLAUGHLIN_LIMIT_SELECTED_BLOCK_SOURCE,
+    NestedShellAccessMode, REFERENCE_SELECTED_BLOCK_SOURCE, build_linear_index_to_row_index,
     build_marvin_phase_plan_from_revenue_factor_shells,
     build_marvin_preferred_nested_shell_family_contract,
     build_marvin_preferred_nested_shell_family_contract_for_phase_plan,
@@ -186,6 +188,7 @@ fn preferred_phase_plan_uses_marvin_nested_shell_primary_route() {
         &linear_index_to_row_index,
         &cpit_solution.assignments,
         Some(&precedence_graph),
+        None,
         &tonnage_column,
         7,
     )
@@ -196,6 +199,23 @@ fn preferred_phase_plan_uses_marvin_nested_shell_primary_route() {
         "nested-shell-bench"
     );
     assert!(preferred.metadata.nested_shell_primary);
+    assert_eq!(
+        preferred.metadata.selected_block_source,
+        MARVIN_SELECTED_BLOCK_SOURCE
+    );
+    assert_eq!(
+        preferred.metadata.selected_block_provenance_chain,
+        MARVIN_PAPERLIKE_PROVENANCE_CHAIN
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        preferred
+            .metadata
+            .selected_block_provenance_summary
+            .contains("shell×bench pushback phases")
+    );
     let preferred_shell_family = preferred
         .metadata
         .marvin_nested_shell_family_contract
@@ -245,6 +265,105 @@ fn preferred_phase_plan_uses_marvin_nested_shell_primary_route() {
 }
 
 #[test]
+fn preferred_phase_plan_uses_mclaughlin_limit_nested_shell_primary_route() {
+    let model = read_benchmark_blocks(
+        benchmark_path("mclaughlin-limit", "mclaughlin_limit.blocks"),
+        "mclaughlin-limit",
+    )
+    .expect("mclaughlin_limit.blocks should load");
+    let cpit_solution = read_minelib_cpit_solution(
+        benchmark_path(
+            "mclaughlin-limit",
+            "references\\mclaughlin_limit_cpit_gmunoz120723.sol",
+        ),
+        &model,
+    )
+    .expect("mclaughlin-limit CPIT solution should load");
+    let precedence_graph = read_minelib_precedence_graph(
+        benchmark_path("mclaughlin-limit", "references\\mclaughlin_limit.prec"),
+        &model,
+    )
+    .expect("mclaughlin-limit precedence should load");
+    let upit_block_values = read_minelib_upit_block_values(
+        benchmark_path("mclaughlin-limit", "references\\mclaughlin_limit.upit"),
+        &model,
+    )
+    .expect("mclaughlin-limit upit values should load")
+    .into_iter()
+    .collect();
+    let linear_index_to_row_index =
+        build_linear_index_to_row_index(&model).expect("lookup should build");
+    let tonnage_column = ColumnId::new("field_5").expect("field_5 should be a valid column id");
+
+    let preferred = build_preferred_phase_plan_for_minelib_scheduling(
+        "mclaughlin-limit",
+        true,
+        &model,
+        &linear_index_to_row_index,
+        &cpit_solution.assignments,
+        Some(&precedence_graph),
+        Some(&upit_block_values),
+        &tonnage_column,
+        7,
+    )
+    .expect("preferred mclaughlin-limit phase plan should build");
+
+    assert_eq!(
+        preferred.metadata.aggregation_strategy,
+        "nested-shell-bench"
+    );
+    assert!(preferred.metadata.nested_shell_primary);
+    assert_eq!(
+        preferred.metadata.selected_block_source,
+        MCLAUGHLIN_LIMIT_SELECTED_BLOCK_SOURCE
+    );
+    assert_eq!(
+        preferred.metadata.selected_block_provenance_chain,
+        MCLAUGHLIN_LIMIT_COMPARABLE_PROVENANCE_CHAIN
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        preferred
+            .metadata
+            .unique_shell_count
+            .expect("realized shell count")
+            >= 1
+    );
+    assert_eq!(preferred.metadata.marvin_nested_shell_family_contract, None);
+    assert!(
+        preferred
+            .metadata
+            .selected_block_provenance_summary
+            .contains("pushback-equivalent shell × bench phases"),
+        "provenance summary should surface the explicit mining-unit equivalent"
+    );
+    assert!(
+        preferred
+            .metadata
+            .descriptive_note
+            .contains("pushback-equivalent mining units"),
+        "report note should describe the pushback-equivalent routing layer"
+    );
+    assert!(
+        preferred
+            .metadata
+            .limitations
+            .iter()
+            .any(|limitation| limitation.contains("pushback-equivalent mining units")),
+        "limitations should keep the benchmark-side mining-unit-equivalent caveat explicit"
+    );
+    assert!(
+        preferred
+            .phase_plan
+            .phases
+            .iter()
+            .all(|phase| phase.shell_index.is_some())
+    );
+}
+
+#[test]
 fn preferred_phase_plan_falls_back_to_reference_period_bench_when_nested_shell_is_disabled() {
     let model = read_benchmark_blocks(
         benchmark_path("mclaughlin", "mclaughlin.blocks"),
@@ -267,6 +386,7 @@ fn preferred_phase_plan_falls_back_to_reference_period_bench_when_nested_shell_i
         &linear_index_to_row_index,
         &cpit_solution.assignments,
         None,
+        None,
         &tonnage_column,
         7,
     )
@@ -277,6 +397,10 @@ fn preferred_phase_plan_falls_back_to_reference_period_bench_when_nested_shell_i
         "reference-period-bench"
     );
     assert!(!preferred.metadata.nested_shell_primary);
+    assert_eq!(
+        preferred.metadata.selected_block_source,
+        REFERENCE_SELECTED_BLOCK_SOURCE
+    );
     assert_eq!(preferred.metadata.unique_shell_count, None);
     assert_eq!(preferred.metadata.marvin_nested_shell_family_contract, None);
     assert!(

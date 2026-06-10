@@ -12,6 +12,7 @@ members = [
     "crates/mine-python",
 
     "crates/mine-reblock",
+    "benchmarks",
     "examples/marvin-inspect",
     "examples/marvin-benchmark",
     "examples/marvin-prec",

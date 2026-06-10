@@ -98,6 +98,7 @@ pub use io::{
 };
 pub use planning::{
     BenchAssignment, BenchParameters, BlockMembershipComparisonReport, BlockPrecedenceTemplate,
+    CpitToposortAssignment, CpitToposortOptions, CpitToposortProblem, CpitToposortSchedule,
     DecomposedSchedulingArtifacts, DecomposedSchedulingConfig, DecomposedTemporalSolver,
     LongTermSchedule, LongTermScheduleEntry, LongTermScheduleMaterialFlowReport,
     LongTermSchedulePeriodCapacity, LongTermSchedulePeriodFlow, LongTermScheduleStockpile,
@@ -105,7 +106,8 @@ pub use planning::{
     LongTermStockpileDepositPolicy, LongTermStockpilePolicy, LongTermStockpileReclaimPolicy,
     MaxClosureArc, MaxClosureArcKind, MaxClosureGraph, MaxClosureNodeId, MiningScenario,
     NestingAccessRules, NumericMetricComparison, NumericMetricComparisonReport,
-    NumericMetricTolerance, PhaseAssignment, PhaseDesign, PhaseTaggingReport, PitShell,
+    NumericMetricTolerance, PcpspToposortAssignment, PcpspToposortOptions, PcpspToposortProblem,
+    PcpspToposortSchedule, PhaseAssignment, PhaseDesign, PhaseTaggingReport, PitShell,
     PitShellMetrics, PitShellSet, PrecedenceEdge, PrecedenceGraph, PrecedenceGraphComparisonReport,
     PrecedenceNode, PrecedenceOffset, PushbackGenerationRules, PushbackPlan, PushbackPrototype,
     PushbackPrototypeReport, ScenarioConstraints, ScenarioPeriod, ScenarioRules, Schedule,
@@ -128,9 +130,9 @@ pub use planning::{
     evaluate_long_term_schedule_material_flows, generate_nested_shells,
     generate_nested_shells_from_model, generate_nested_shells_from_weight_map,
     generate_nested_shells_from_weight_scenarios, read_pit_shell_set_json,
-    read_precedence_graph_json, solve_decomposed_scheduling_problem,
-    solve_small_scheduling_problem, solve_upl_exact, uniform_revenue_factors,
-    validate_vertical_advance, verify_closure, write_pit_shell_set_json,
+    read_precedence_graph_json, solve_cpit_with_toposort, solve_decomposed_scheduling_problem,
+    solve_pcpsp_with_toposort, solve_small_scheduling_problem, solve_upl_exact,
+    uniform_revenue_factors, validate_vertical_advance, verify_closure, write_pit_shell_set_json,
     write_precedence_graph_json,
 };
 pub use reblock::{

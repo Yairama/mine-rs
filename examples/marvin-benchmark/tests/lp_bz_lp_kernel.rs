@@ -4,9 +4,13 @@ mod lp_bz_lp_kernel;
 use std::collections::{BTreeMap, BTreeSet};
 
 use lp_bz_lp_kernel::{
-    LpBzCutTighteningStrategy, LpBzLpKernelConstraintKind, LpBzLpKernelConstraintSense,
-    LpBzLpSolveStatus, LpBzPrecedenceEnforcementStrategy, build_lp_bz_lp_kernel_artifact,
-    solve_lp_bz_lp_kernel_artifact,
+    LpBzCutTighteningStrategy, LpBzLpKernelAccessArtifact, LpBzLpKernelArtifact,
+    LpBzLpKernelConstraintArtifact, LpBzLpKernelConstraintKind, LpBzLpKernelConstraintRow,
+    LpBzLpKernelConstraintSense, LpBzLpKernelConstraintSummary, LpBzLpKernelObjectiveArtifact,
+    LpBzLpKernelObjectiveCoefficient, LpBzLpKernelObjectiveSummary, LpBzLpKernelVariableEntry,
+    LpBzLpKernelVariableIndexArtifact, LpBzLpKernelVariableKey, LpBzLpSolveStatus,
+    LpBzPrecedenceCoverageCompleteness, LpBzPrecedenceEnforcementStrategy,
+    build_lp_bz_lp_kernel_artifact, solve_lp_bz_lp_kernel_artifact,
 };
 use mine_sdk::{
     Metadata, ModelId, ScenarioId, ScheduleDestinationId, SchedulingObjectiveTerm,
@@ -164,6 +168,14 @@ fn lp_kernel_native_solve_returns_optimal_discounted_upper_bound() {
             .enforced_precedence_rows
     );
     assert_eq!(
+        solve_artifact.precedence_diagnostics.coverage_completeness,
+        LpBzPrecedenceCoverageCompleteness::Complete
+    );
+    assert_eq!(
+        solve_artifact.precedence_diagnostics.coverage_basis_points,
+        Some(10_000)
+    );
+    assert_eq!(
         solve_artifact
             .precedence_diagnostics
             .skipped_precedence_rows,
@@ -180,6 +192,10 @@ fn lp_kernel_native_solve_returns_optimal_discounted_upper_bound() {
     assert!(
         solve_artifact.limitations[0].contains("full per-period precedence"),
         "limitations should describe full precedence enforcement"
+    );
+    assert!(
+        solve_artifact.limitations[0].contains("coverage complete (100.00%)"),
+        "limitations should report explicit full precedence coverage"
     );
 }
 
@@ -294,6 +310,100 @@ fn lp_kernel_cumulative_prefix_cuts_tighten_legacy_precedence_rows() {
         LpBzCutTighteningStrategy::None
     );
     assert_eq!(legacy_solve.cut_diagnostics.total_applied_row_count, 0);
+}
+
+#[test]
+fn lp_kernel_hybrid_precedence_reports_partial_coverage_explicitly() {
+    let total_precedence_rows = 200_001usize;
+    let period_count = 12usize;
+    let kernel = LpBzLpKernelArtifact {
+        kernel_label: "hybrid-coverage-fixture".to_owned(),
+        period_count,
+        unit_count: 1,
+        destination_count: 1,
+        discount_rate: 0.0,
+        variable_index: LpBzLpKernelVariableIndexArtifact {
+            variable_count: 1,
+            entries: vec![LpBzLpKernelVariableEntry {
+                variable_index: 0,
+                key: LpBzLpKernelVariableKey {
+                    unit_id: "unit-a".to_owned(),
+                    destination_id: "dest-a".to_owned(),
+                    period_index: 0,
+                },
+                period_label: "P01".to_owned(),
+            }],
+        },
+        objective: LpBzLpKernelObjectiveArtifact {
+            summary: LpBzLpKernelObjectiveSummary {
+                coefficient_count: 1,
+                non_zero_coefficient_count: 1,
+            },
+            coefficients: vec![LpBzLpKernelObjectiveCoefficient {
+                variable_index: 0,
+                coefficient: 1.0,
+                undiscounted_value: 1.0,
+                discount_factor: 1.0,
+            }],
+        },
+        constraints: LpBzLpKernelConstraintArtifact {
+            summary: LpBzLpKernelConstraintSummary {
+                row_count: total_precedence_rows,
+                capacity_row_count: 0,
+                activation_row_count: 0,
+                precedence_row_count: total_precedence_rows,
+            },
+            rows: (0..total_precedence_rows)
+                .map(|row_index| LpBzLpKernelConstraintRow {
+                    row_index,
+                    row_id: format!("precedence-row-{row_index}"),
+                    kind: LpBzLpKernelConstraintKind::PrecedenceActivation,
+                    sense: LpBzLpKernelConstraintSense::LessEqual,
+                    rhs: 0.0,
+                    period_index: Some(row_index % period_count),
+                    period_label: Some(format!("P{:02}", (row_index % period_count) + 1)),
+                    resource_id: None,
+                    unit_id: None,
+                    predecessor_unit_id: None,
+                    successor_unit_id: None,
+                    terms: Vec::new(),
+                })
+                .collect(),
+        },
+        access: LpBzLpKernelAccessArtifact {
+            unit_profile_count: 0,
+            unit_profiles: Vec::new(),
+        },
+        limitations: vec!["synthetic hybrid coverage fixture".to_owned()],
+    };
+
+    let solve_artifact =
+        solve_lp_bz_lp_kernel_artifact(&kernel).expect("hybrid coverage solve should succeed");
+
+    assert_eq!(solve_artifact.solve_status, LpBzLpSolveStatus::Optimal);
+    assert_eq!(
+        solve_artifact.precedence_diagnostics.strategy,
+        LpBzPrecedenceEnforcementStrategy::HybridCheckpoint
+    );
+    assert_eq!(
+        solve_artifact.precedence_diagnostics.coverage_completeness,
+        LpBzPrecedenceCoverageCompleteness::Partial
+    );
+    assert_eq!(
+        solve_artifact.precedence_diagnostics.coverage_basis_points,
+        Some(2_500)
+    );
+    assert!(
+        solve_artifact
+            .precedence_diagnostics
+            .enforced_precedence_rows
+            < solve_artifact.precedence_diagnostics.total_precedence_rows,
+        "hybrid coverage should enforce only a subset of precedence rows"
+    );
+    assert!(
+        solve_artifact.limitations[0].contains("coverage partial (25.00%)"),
+        "limitations should report explicit partial precedence coverage"
+    );
 }
 
 #[test]

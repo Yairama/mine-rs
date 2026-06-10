@@ -187,7 +187,7 @@ pub fn generate_nested_shells_from_weight_scenarios(
     let mut shells: Vec<PitShell> = Vec::with_capacity(weight_scenarios.len());
     let mut seen_memberships: Vec<Vec<usize>> = Vec::new();
     let mut sorted_scenarios = weight_scenarios.to_vec();
-    sorted_scenarios.sort_by(|left, right| left.0.partial_cmp(&right.0).unwrap());
+    sorted_scenarios.sort_by(|left, right| left.0.total_cmp(&right.0));
 
     for (factor, block_weights) in sorted_scenarios {
         let closure_graph = build_max_closure_graph(&block_weights, precedence_graph)?;
@@ -386,7 +386,7 @@ mod tests {
                 PrecedenceNode::Block(0),
                 PrecedenceNode::Block(0),
             )])
-            .unwrap_err();
+            .expect_err("self edge should be rejected");
             // Return graph with a single node
             return PrecedenceGraph::from_nodes_and_edges(vec![PrecedenceNode::Block(0)], vec![])
                 .expect("single-node graph should be valid");

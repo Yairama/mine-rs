@@ -609,7 +609,9 @@ mod tests {
             .expect("comparison should succeed");
 
         assert!(report.variance_smoothing_ratio.is_some());
-        let smoothing = report.variance_smoothing_ratio.unwrap();
+        let smoothing = report
+            .variance_smoothing_ratio
+            .expect("smoothing ratio should be present");
         // Block variance < composite variance → smoothing ratio > 0
         assert!(smoothing > 0.0);
     }
@@ -625,7 +627,9 @@ mod tests {
 
         assert!((report.mean_difference - 0.1).abs() < 1e-9);
         assert!(report.relative_mean_difference.is_some());
-        let rel = report.relative_mean_difference.unwrap();
+        let rel = report
+            .relative_mean_difference
+            .expect("relative mean difference should be present");
         assert!((rel - 0.1).abs() < 1e-9);
     }
 }

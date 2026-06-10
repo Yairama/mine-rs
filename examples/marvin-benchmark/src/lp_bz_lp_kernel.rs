@@ -156,6 +156,14 @@ pub enum LpBzPrecedenceEnforcementStrategy {
     HybridCheckpoint,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LpBzPrecedenceCoverageCompleteness {
+    NotApplicable,
+    Partial,
+    Complete,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LpBzPrecedenceSolveDiagnostics {
     pub strategy: LpBzPrecedenceEnforcementStrategy,
@@ -163,6 +171,8 @@ pub struct LpBzPrecedenceSolveDiagnostics {
     pub total_precedence_rows: usize,
     pub enforced_precedence_rows: usize,
     pub skipped_precedence_rows: usize,
+    pub coverage_completeness: LpBzPrecedenceCoverageCompleteness,
+    pub coverage_basis_points: Option<u16>,
     pub enforced_period_indices: Vec<usize>,
     pub skipped_period_indices: Vec<usize>,
 }
@@ -411,12 +421,21 @@ pub fn solve_lp_bz_lp_kernel_artifact(
             skipped_precedence_period_indices.insert(period_index);
         }
     }
+    let precedence_coverage_completeness = lp_bz_precedence_coverage_completeness(
+        total_precedence_rows,
+        enforced_precedence_rows,
+        skipped_precedence_rows,
+    );
+    let precedence_coverage_basis_points =
+        lp_bz_precedence_coverage_basis_points(total_precedence_rows, enforced_precedence_rows);
     let precedence_diagnostics = LpBzPrecedenceSolveDiagnostics {
         strategy: precedence_plan.strategy,
         max_enforced_precedence_rows: precedence_plan.max_enforced_precedence_rows,
         total_precedence_rows,
         enforced_precedence_rows,
         skipped_precedence_rows,
+        coverage_completeness: precedence_coverage_completeness,
+        coverage_basis_points: precedence_coverage_basis_points,
         enforced_period_indices: enforced_precedence_period_indices.into_iter().collect(),
         skipped_period_indices: skipped_precedence_period_indices.into_iter().collect(),
     };
@@ -430,6 +449,8 @@ pub fn solve_lp_bz_lp_kernel_artifact(
         .iter()
         .map(|period_index| format!("p{:02}", period_index + 1))
         .collect::<Vec<_>>();
+    let precedence_coverage_label =
+        lp_bz_precedence_coverage_label(precedence_diagnostics.coverage_basis_points);
     let (precedence_cut_rows, precedence_cut_diagnostics) =
         build_precedence_cumulative_prefix_cut_rows(artifact, &precedence_enforced_period_set)?;
     let (access_cut_rows, access_cut_family_diagnostics) =
@@ -588,7 +609,11 @@ pub fn solve_lp_bz_lp_kernel_artifact(
                 cut_diagnostics.total_skipped_row_count
             ),
             LpBzPrecedenceEnforcementStrategy::FullPerPeriod => format!(
-                "Native LP solve enforces deterministic full per-period precedence rows: enforced {}/{} (skipped {}) across periods {:?}. Deterministic cut strategy `{}` generated {} rows (applied {}, skipped {}) with families {:?}.",
+                "Native LP solve enforces deterministic full per-period precedence rows with coverage {} ({}): enforced {}/{} (skipped {}) across periods {:?}. Deterministic cut strategy `{}` generated {} rows (applied {}, skipped {}) with families {:?}.",
+                lp_bz_precedence_coverage_completeness_label(
+                    precedence_diagnostics.coverage_completeness
+                ),
+                precedence_coverage_label,
                 precedence_diagnostics.enforced_precedence_rows,
                 precedence_diagnostics.total_precedence_rows,
                 precedence_diagnostics.skipped_precedence_rows,
@@ -604,8 +629,12 @@ pub fn solve_lp_bz_lp_kernel_artifact(
                     .collect::<Vec<_>>()
             ),
             LpBzPrecedenceEnforcementStrategy::HybridCheckpoint => format!(
-                "Native LP solve enforces deterministic hybrid precedence checkpoints with row budget {}: enforced {}/{} (skipped {}) across periods {:?}; skipped periods {:?}. Deterministic cut strategy `{}` generated {} rows (applied {}, skipped {}) with families {:?}.",
+                "Native LP solve enforces deterministic hybrid precedence checkpoints with row budget {} and coverage {} ({}): enforced {}/{} (skipped {}) across periods {:?}; skipped periods {:?}. Deterministic cut strategy `{}` generated {} rows (applied {}, skipped {}) with families {:?}.",
                 precedence_diagnostics.max_enforced_precedence_rows,
+                lp_bz_precedence_coverage_completeness_label(
+                    precedence_diagnostics.coverage_completeness
+                ),
+                precedence_coverage_label,
                 precedence_diagnostics.enforced_precedence_rows,
                 precedence_diagnostics.total_precedence_rows,
                 precedence_diagnostics.skipped_precedence_rows,
@@ -1018,6 +1047,52 @@ fn merge_cut_diagnostics(
         total_applied_row_count,
         total_skipped_row_count,
         families,
+    }
+}
+
+fn lp_bz_precedence_coverage_completeness(
+    total_precedence_rows: usize,
+    enforced_precedence_rows: usize,
+    skipped_precedence_rows: usize,
+) -> LpBzPrecedenceCoverageCompleteness {
+    if total_precedence_rows == 0 {
+        return LpBzPrecedenceCoverageCompleteness::NotApplicable;
+    }
+    if skipped_precedence_rows == 0 && enforced_precedence_rows >= total_precedence_rows {
+        return LpBzPrecedenceCoverageCompleteness::Complete;
+    }
+    LpBzPrecedenceCoverageCompleteness::Partial
+}
+
+fn lp_bz_precedence_coverage_basis_points(
+    total_precedence_rows: usize,
+    enforced_precedence_rows: usize,
+) -> Option<u16> {
+    if total_precedence_rows == 0 {
+        return None;
+    }
+    let bounded_enforced_rows = enforced_precedence_rows.min(total_precedence_rows) as u128;
+    let total_precedence_rows = total_precedence_rows as u128;
+    Some(
+        (((bounded_enforced_rows * 10_000) + (total_precedence_rows / 2)) / total_precedence_rows)
+            as u16,
+    )
+}
+
+fn lp_bz_precedence_coverage_label(coverage_basis_points: Option<u16>) -> String {
+    match coverage_basis_points {
+        Some(coverage_basis_points) => format!("{:.2}%", f64::from(coverage_basis_points) / 100.0),
+        None => "n/a".to_owned(),
+    }
+}
+
+fn lp_bz_precedence_coverage_completeness_label(
+    completeness: LpBzPrecedenceCoverageCompleteness,
+) -> &'static str {
+    match completeness {
+        LpBzPrecedenceCoverageCompleteness::NotApplicable => "not_applicable",
+        LpBzPrecedenceCoverageCompleteness::Partial => "partial",
+        LpBzPrecedenceCoverageCompleteness::Complete => "complete",
     }
 }
 

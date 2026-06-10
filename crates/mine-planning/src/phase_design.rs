@@ -565,13 +565,17 @@ mod tests {
         )
         .expect("derivation should succeed");
 
-        let phase0_tonnage = plan.phases[0].total_tonnage.unwrap();
+        let phase0_tonnage = plan.phases[0]
+            .total_tonnage
+            .expect("phase 0 tonnage should exist");
         assert!((phase0_tonnage - 300.0).abs() < 1e-9); // blocks 0+1: 100+200
 
-        let phase1_tonnage = plan.phases[1].total_tonnage.unwrap();
+        let phase1_tonnage = plan.phases[1]
+            .total_tonnage
+            .expect("phase 1 tonnage should exist");
         assert!((phase1_tonnage - 450.0).abs() < 1e-9); // blocks 2+3: 150+300
 
-        assert!((plan.total_tonnage.unwrap() - 750.0).abs() < 1e-9);
+        assert!((plan.total_tonnage.expect("total tonnage should exist") - 750.0).abs() < 1e-9);
     }
 
     #[test]
@@ -609,9 +613,23 @@ mod tests {
         )
         .expect("sparse derivation should succeed");
 
-        assert!((plan.phases[0].total_tonnage.unwrap() - 300.0).abs() < 1e-9);
-        assert!((plan.phases[1].total_tonnage.unwrap() - 450.0).abs() < 1e-9);
-        assert!((plan.total_tonnage.unwrap() - 750.0).abs() < 1e-9);
+        assert!(
+            (plan.phases[0]
+                .total_tonnage
+                .expect("phase 0 tonnage should exist")
+                - 300.0)
+                .abs()
+                < 1e-9
+        );
+        assert!(
+            (plan.phases[1]
+                .total_tonnage
+                .expect("phase 1 tonnage should exist")
+                - 450.0)
+                .abs()
+                < 1e-9
+        );
+        assert!((plan.total_tonnage.expect("total tonnage should exist") - 750.0).abs() < 1e-9);
     }
 
     #[test]

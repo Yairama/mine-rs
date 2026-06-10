@@ -1,0 +1,34 @@
+# Tabla de paridad mine-rs vs literatura MineLib
+
+Fuente canónica del estado de paridad del repo contra los resultados publicados (MR-217).
+
+Reglas de mantenimiento:
+
+- Los valores `mine-rs` de esta tabla se validan automáticamente contra los reportes JSON versionados mediante `examples/marvin-benchmark/tests/literature_parity.rs`. Si un reporte se regenera con valores nuevos, el test falla hasta actualizar esta tabla.
+- Los valores publicados provienen de los info files staged (`datasets/benchmarks/*/​*-info.txt`, valores MineLib originales de [R29] Espinoza et al., doi 10.1007/s10479-012-1258-3). La literatura posterior ([R33] Jélvez et al., [R37] Rivera Letelier et al., doi 10.1287/opre.2019.1965) mejoró varios best-knowns; superar el incumbent staged 2012 NO equivale a reclamar un best-known mundial.
+- Los runtimes viven en los reportes JSON (telemetría MR-215) y no se copian aquí porque dependen de la máquina.
+
+## Estado por instancia y formulación
+
+Última actualización: 2026-06-10.
+
+| Instancia | Formulación | Publicado (MineLib staged) | mine-rs (mejor versionado) | Método propio | Gap vs publicado | Clasificación |
+| --- | --- | ---: | ---: | --- | ---: | --- |
+| marvin | UPIT | 1415655436 | `1415655436.137` | Dinic exacto (MR-173) | 0.000% (paridad) | paridad-exacta |
+| marvin | CPIT | 820726048 (LP 863916131) | `831910167.445` | TopoSort + delay de estéril (MR-211) | -1.363% (supera incumbent 2012; LP gap 3.70%) | candidato-factible-auditado |
+| marvin | PCPSP | 885968070 (LP-PCPSP 911704665) | `829532040.176` | TopoSort multi-destino + delay de estéril (MR-212) | +6.370% (LP gap 9.01%) | candidato-factible-auditado |
+| marvin | LP-PCPSP (bound propio) | 911704665 | `899374039.13` | LP/BZ sidecar parcial (`minilp`, 10% precedencias forzadas) | bound parcial | diagnostic-only |
+| mclaughlin-limit | UPIT | 1495726474 | `1495726474.000` | Dinic exacto (MR-173) | 0.000% (paridad) | paridad-exacta |
+| mclaughlin-limit | CPIT | 1073327197 (LP 1078979501) | `1076575736.387` | TopoSort + delay de estéril (MR-211) | -0.303% (supera incumbent 2012; LP gap 0.22%) | candidato-factible-auditado |
+| mclaughlin-limit | PCPSP | 1321662551 | `1072520168.220` | TopoSort multi-destino + delay (MR-212; ordering proxy `LPcpit`, ver MR-214) | +18.851% | candidato-factible-auditado (ordering proxy) |
+| mclaughlin (full) | UPIT | 1495886962 | `1495886962.000` | Dinic exacto (MR-173, 2.14M bloques) | 0.000% (paridad) | paridad-exacta |
+| mclaughlin (full) | CPIT | 1073327197 (LP 1079024268) | `1076657289.415` | TopoSort + delay de estéril (MR-211) | -0.310% (supera incumbent 2012; LP gap 0.22%) | candidato-factible-auditado |
+| mclaughlin (full) | PCPSP | 1510126435 (variante stress-only) | `1104986371.475` | TopoSort multi-destino + delay (MR-212; ordering proxy `LPcpit`) | +26.828% | stress-only-local |
+| newman1, zuck_*, kd, p4hd, w23, sm2 | todas | ver MineLib [R29] | sin staging | — | — | pendiente (MR-208) |
+
+## Notas de lectura
+
+1. **UPIT cerrado en valor y validado en escala.** El backend Dinic reproduce exactamente los tres objetivos UPIT oficiales, incluida la instancia full de 2.14M bloques / 73.1M aristas de precedencia (solve ≈ 26 s wall-clock en la máquina de referencia; el parsing del `prec` domina el tiempo total). Evidencia: `datasets/benchmarks/outputs/upit-runtime-report.json` (MR-209).
+2. **CPIT con candidato propio factible.** La heurística TopoSort core (`solve_cpit_with_toposort`, Chicoisne et al. 2012 [R35]) con post-pass de retraso de estéril produce schedules auditados (recursos sin exceso, precedencias verificadas arista por arista) que superan el incumbent staged 2012 en las tres instancias y quedan dentro de 0.2–3.7% del bound LP publicado. Protocolo: el ordering reusa la relajación LP staged de MineLib; el bound LP propio es el objetivo de MR-213. Evidencia: `datasets/benchmarks/outputs/cpit-toposort-report.json` (MR-211).
+3. **PCPSP avanzó a gap de un dígito en Marvin.** La extensión multi-destino de la heurística TopoSort (`solve_pcpsp_with_toposort`, decisión de destino por valor descontado máximo entre pares factibles) lleva el candidato Marvin de 664.2M (gap 25.0%) a 829,532,040 (gap 6.37%), superando además la baseline `cpit-period-routed` (820.7M) — los dos primeros hitos de MR-212. McLaughlin Limit baja de 61.9% a 18.85% de gap usando `LPcpit` como ordering proxy documentado (su `LPpcpsp` no está staged, MR-214). Los candidatos están auditados (recursos sin exceso, precedencias verificadas). El cierre restante de la campaña (bound LP/BZ propio, round/repair K-step, búsqueda local presupuestada y gate temporal) vive en MR-212/MR-213/MR-214. Evidencia: `datasets/benchmarks/outputs/pcpsp-toposort-report.json`; el candidato exploratorio anterior queda en `datasets/benchmarks/outputs/multi-mine-scheduling-report.json`.
+4. **Cobertura de instancias.** Solo 3 de 11 instancias MineLib están staged; el resto depende de MR-208 (el sitio público responde tras un WAF, ver nota en `docs/backlog.md`).

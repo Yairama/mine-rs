@@ -33,6 +33,18 @@ pub struct NestedShellPhasePlanArtifacts {
 
 const REFERENCE_PERIOD_BENCH_AGGREGATION: &str = "reference-period-bench";
 const NESTED_SHELL_BENCH_AGGREGATION: &str = "nested-shell-bench";
+pub const REFERENCE_SELECTED_BLOCK_SOURCE: &str = "cpit-solution";
+pub const MARVIN_SELECTED_BLOCK_SOURCE: &str = "marvin-paperlike-v2-shells-pushbacks-mining-cuts";
+pub const MARVIN_PAPERLIKE_PROVENANCE_CHAIN: [&str; 4] =
+    ["shells", "pushbacks", "mining-cuts", "scheduling"];
+pub const MCLAUGHLIN_LIMIT_SELECTED_BLOCK_SOURCE: &str =
+    "mclaughlin-limit-open-upit-shells-pushback-equivalent-bench-phases";
+pub const MCLAUGHLIN_LIMIT_COMPARABLE_PROVENANCE_CHAIN: [&str; 4] = [
+    "open-upit-net-values",
+    "precedence-constrained-shells",
+    "pushback-equivalent-bench-phases",
+    "scheduling",
+];
 pub const MARVIN_PREFERRED_NESTED_SHELL_FACTOR_COUNT: usize = 7;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -111,6 +123,9 @@ pub fn build_marvin_preferred_nested_shell_family_contract_for_phase_plan(
 /// Metadatos del phase plan preferido para wiring de reportes.
 #[cfg_attr(not(test), allow(dead_code))]
 pub struct PreferredPhasePlanMetadata {
+    pub selected_block_source: String,
+    pub selected_block_provenance_summary: String,
+    pub selected_block_provenance_chain: Vec<String>,
     pub aggregation_strategy: String,
     pub nested_shell_primary: bool,
     pub unique_shell_count: Option<usize>,
@@ -388,6 +403,7 @@ pub fn build_preferred_phase_plan_for_minelib_scheduling(
     linear_index_to_row_index: &BTreeMap<usize, usize>,
     reference_assignments: &[MinelibScheduleAssignment],
     precedence_graph: Option<&mine_sdk::PrecedenceGraph>,
+    upit_block_values: Option<&BTreeMap<usize, f64>>,
     tonnage_column: &ColumnId,
     marvin_factor_count: usize,
 ) -> Result<PreferredPhasePlanArtifacts, mine_sdk::MineError> {
@@ -413,6 +429,7 @@ pub fn build_preferred_phase_plan_for_minelib_scheduling(
             &descriptive_note,
         )?;
         let limitations = shell_artifacts.phase_plan.limitations.clone();
+        let realized_phase_count = shell_artifacts.phase_plan.phase_count;
         let preferred_shell_family =
             build_marvin_preferred_nested_shell_family_contract_for_phase_plan(
                 marvin_factor_count,
@@ -422,10 +439,81 @@ pub fn build_preferred_phase_plan_for_minelib_scheduling(
         return Ok(PreferredPhasePlanArtifacts {
             phase_plan: shell_artifacts.phase_plan,
             metadata: PreferredPhasePlanMetadata {
+                selected_block_source: MARVIN_SELECTED_BLOCK_SOURCE.to_owned(),
+                selected_block_provenance_summary: format!(
+                    "Marvin now treats the bounded `{}` family as an explicit benchmark-side admission contract: `{}` drive the admissible block set, the promoted {}-factor `{}` family currently realizes {} shells and {} shell×bench pushback phases, and downstream localized mining cuts plus scheduling stay traceable as separate benchmark-side steps. The open CPIT solution remains only a public reference artifact, not the primary provenance label.",
+                    NESTED_SHELL_BENCH_AGGREGATION,
+                    MARVIN_PAPERLIKE_PROVENANCE_CHAIN[0],
+                    preferred_shell_family.revenue_factor_count,
+                    preferred_shell_family.shell_access_mode.label(),
+                    preferred_shell_family
+                        .realized_shell_count
+                        .map(|count| count.to_string())
+                        .unwrap_or_else(|| "an unreported number of".to_owned()),
+                    realized_phase_count,
+                ),
+                selected_block_provenance_chain: MARVIN_PAPERLIKE_PROVENANCE_CHAIN
+                    .into_iter()
+                    .map(str::to_owned)
+                    .collect(),
                 aggregation_strategy: preferred_shell_family.aggregation_strategy.clone(),
                 nested_shell_primary: true,
                 unique_shell_count: preferred_shell_family.realized_shell_count,
                 marvin_nested_shell_family_contract: Some(preferred_shell_family),
+                descriptive_note,
+                limitations,
+            },
+        });
+    }
+
+    if dataset_id == "mclaughlin-limit" && nested_shell_primary_enabled {
+        let precedence_graph = precedence_graph.ok_or_else(|| {
+            mine_sdk::MineError::invalid_parameter(
+                "precedence_graph",
+                "mclaughlin-limit nested-shell primary path requires a precedence graph",
+            )
+        })?;
+        let upit_block_values = upit_block_values.ok_or_else(|| {
+            mine_sdk::MineError::invalid_parameter(
+                "upit_block_values",
+                "mclaughlin-limit nested-shell primary path requires MineLib UPIT block values",
+            )
+        })?;
+        let revenue_factors = uniform_revenue_factors(marvin_factor_count)?;
+        let descriptive_note = format!(
+            "mclaughlin-limit scheduling now promotes a bounded nested-shell × bench phase plan rebuilt from open `*.upit` block values and benchmark precedence, treating shell × bench phases as pushback-equivalent mining units before routing."
+        );
+        let shell_artifacts = build_phase_plan_from_nested_shells(
+            model,
+            precedence_graph,
+            upit_block_values,
+            tonnage_column,
+            &revenue_factors,
+            &descriptive_note,
+        )?;
+        let unique_shell_count = shell_artifacts.shell_set.unique_shell_count;
+        let mut limitations = shell_artifacts.phase_plan.limitations.clone();
+        limitations.push(
+            "mclaughlin-limit currently treats shell × bench phases as explicit pushback-equivalent mining units; it still lacks a literature-grade mining-cut refinement or LP/BZ sidecar."
+                .to_owned(),
+        );
+
+        return Ok(PreferredPhasePlanArtifacts {
+            phase_plan: shell_artifacts.phase_plan,
+            metadata: PreferredPhasePlanMetadata {
+                selected_block_source: MCLAUGHLIN_LIMIT_SELECTED_BLOCK_SOURCE.to_owned(),
+                selected_block_provenance_summary: format!(
+                    "McLaughlin Limit now treats the bounded `{}` family as an explicit benchmark-side selected-block and routing contract: open `*.upit` net values plus benchmark precedence define the admissible shell family, those shells compress into pushback-equivalent shell × bench phases, and scheduling operates on that equivalent mining-unit layer. The staged CPIT solution remains only a public reference artifact, not the primary selected-block seed.",
+                    NESTED_SHELL_BENCH_AGGREGATION,
+                ),
+                selected_block_provenance_chain: MCLAUGHLIN_LIMIT_COMPARABLE_PROVENANCE_CHAIN
+                    .into_iter()
+                    .map(str::to_owned)
+                    .collect(),
+                aggregation_strategy: NESTED_SHELL_BENCH_AGGREGATION.to_owned(),
+                nested_shell_primary: true,
+                unique_shell_count: Some(unique_shell_count),
+                marvin_nested_shell_family_contract: None,
                 descriptive_note,
                 limitations,
             },
@@ -453,6 +541,15 @@ pub fn build_preferred_phase_plan_for_minelib_scheduling(
     Ok(PreferredPhasePlanArtifacts {
         phase_plan,
         metadata: PreferredPhasePlanMetadata {
+            selected_block_source: REFERENCE_SELECTED_BLOCK_SOURCE.to_owned(),
+            selected_block_provenance_summary:
+                "Selected blocks still come from staged CPIT memberships and are then aggregated directly into reference-period × bench scheduling units."
+                    .to_owned(),
+            selected_block_provenance_chain: vec![
+                "cpit-memberships".to_owned(),
+                "reference-period-bench".to_owned(),
+                "scheduling".to_owned(),
+            ],
             aggregation_strategy: REFERENCE_PERIOD_BENCH_AGGREGATION.to_owned(),
             nested_shell_primary: false,
             unique_shell_count: None,

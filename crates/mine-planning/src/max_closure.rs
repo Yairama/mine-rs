@@ -271,7 +271,10 @@ mod tests {
 
         assert_eq!(closure_graph.block_count, 2);
         assert_eq!(closure_graph.source_arcs().count(), 1);
-        let sa = closure_graph.source_arcs().next().unwrap();
+        let sa = closure_graph
+            .source_arcs()
+            .next()
+            .expect("source arc should exist");
         assert_eq!(sa.to, MaxClosureNodeId::Block(0));
         assert!((sa.capacity - 10.0).abs() < 1e-9);
     }
@@ -284,7 +287,10 @@ mod tests {
             build_max_closure_graph(&weights, &graph).expect("should build closure graph");
 
         assert_eq!(closure_graph.sink_arcs().count(), 1);
-        let ta = closure_graph.sink_arcs().next().unwrap();
+        let ta = closure_graph
+            .sink_arcs()
+            .next()
+            .expect("sink arc should exist");
         assert_eq!(ta.from, MaxClosureNodeId::Block(1));
         assert!((ta.capacity - 5.0).abs() < 1e-9);
     }

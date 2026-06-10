@@ -13,10 +13,13 @@ use mine_sdk::{
     LongTermSchedule, Metadata, MineError, PushbackPlan, SchedulingProblem, SchedulingUnitId,
     build_target_period_seeded_long_term_schedule,
 };
+use serde::Serialize;
 
 /// Resultado del redondeo/reparación a nivel de unidades de scheduling.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LpBzUnitRoundRepairResult {
+    /// Score proxy explícito por etapa `round -> repair -> local-search`.
+    pub target_score_decomposition: LpBzUnitTargetScoreDecomposition,
     /// Periodo objetivo entero y factible por precedencia para cada unidad.
     pub target_period_by_unit: BTreeMap<SchedulingUnitId, usize>,
     /// Cantidad de unidades cuyo periodo se retrasó para respetar precedencias.
@@ -29,11 +32,23 @@ pub struct LpBzUnitRoundRepairResult {
     pub local_optimizer_diagnostics: LpBzLocalOptimizerDiagnostics,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct LpBzUnitTargetScoreDecomposition {
+    pub rounded_discounted_target_score_proxy: f64,
+    pub repaired_discounted_target_score_proxy: f64,
+    pub local_search_discounted_target_score_proxy: f64,
+    pub repair_score_delta_vs_round_proxy: f64,
+    pub local_search_score_delta_vs_repair_proxy: f64,
+    pub local_search_score_delta_vs_round_proxy: f64,
+}
+
 /// Diagnósticos del optimizador local aplicado tras el round/repair topológico.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LpBzLocalOptimizerDiagnostics {
     /// Etiqueta de la estrategia local usada por el rounder.
     pub strategy_label: String,
+    /// Perfil explícito del presupuesto local usado por la ruta LP/BZ.
+    pub budget_profile: LpBzLocalOptimizerBudgetProfile,
     /// Cota dura de iteraciones evaluadas por el optimizador.
     pub max_iteration_count: usize,
     /// Iteraciones efectivamente ejecutadas por el optimizador.
@@ -42,6 +57,25 @@ pub struct LpBzLocalOptimizerDiagnostics {
     pub improving_move_count: usize,
     /// Causa de término del optimizador local.
     pub termination_reason: String,
+    /// Mejor oportunidad residual inmediata cuando el presupuesto corta la búsqueda.
+    pub residual_opportunity: LpBzLocalOptimizerResidualOpportunity,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LpBzLocalOptimizerBudgetProfile {
+    pub mode_label: String,
+    pub target_unit_count: usize,
+    pub horizon_period_count: usize,
+    pub full_iteration_budget: usize,
+    pub requested_iteration_budget: usize,
+    pub effective_iteration_budget: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct LpBzLocalOptimizerResidualOpportunity {
+    pub improving_move_available: bool,
+    pub move_kind_label: String,
+    pub discounted_gain: f64,
 }
 
 /// Artefactos del pipeline LP-guided de round/repair benchmark-side.
@@ -133,7 +167,8 @@ struct LpPhaseFractionalSignal {
 const LOCAL_CHAIN_NEIGHBORHOOD_RADIUS: usize = 2;
 const LOCAL_PERIOD_EJECTION_NEIGHBORHOOD_RADIUS: usize = 3;
 const LOCAL_PERIOD_EJECTION_BRANCH_LIMIT: usize = 3;
-const FOCUSED_REFRESH_LOCAL_OPTIMIZER_MAX_ITERATIONS: usize = 1;
+const FOCUSED_REFRESH_LOCAL_OPTIMIZER_MIN_ITERATIONS: usize = 4;
+const FOCUSED_REFRESH_LOCAL_OPTIMIZER_MAX_ITERATIONS: usize = 24;
 pub const FOCUSED_REFRESH_SKIPPED_LOCAL_OPTIMIZER_REASON: &str = "skipped-focused-refresh-runtime";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -326,7 +361,8 @@ pub fn build_target_period_seeded_schedule_from_lp_round_repair_v6(
 }
 
 /// Variante focalizada: mantiene el round/repair topológico y el schedule seeded
-/// del refresh MR-187, pero ahora sí ejecuta el optimizador local v8 acotado.
+/// del refresh MR-187, pero ahora sí ejecuta el optimizador local v8 con un
+/// presupuesto explícito y no trivial.
 pub fn build_target_period_seeded_schedule_from_lp_round_repair_v6_focused(
     phase_plan: &PushbackPlan,
     scheduling_problem: &SchedulingProblem,
@@ -749,6 +785,10 @@ fn round_and_repair_unit_target_periods_with_local_optimization(
         .collect::<BTreeMap<_, _>>();
 
     let mut target_period_by_unit = BTreeMap::<SchedulingUnitId, usize>::new();
+    let rounded_target_period_by_unit = unit_priority_by_unit
+        .iter()
+        .map(|(unit_id, unit_priority)| (unit_id.clone(), unit_priority.clamped_target))
+        .collect::<BTreeMap<_, _>>();
     let mut ready_unit_ids: Vec<SchedulingUnitId> = pending_predecessor_count_by_unit
         .iter()
         .filter(|(_, pending_count)| **pending_count == 0)
@@ -847,6 +887,16 @@ fn round_and_repair_unit_target_periods_with_local_optimization(
     }
 
     let base_target_period_by_unit = target_period_by_unit.clone();
+    let rounded_discounted_target_score_proxy = discounted_target_score_from_objective_index(
+        &objective_score_by_unit,
+        discount_factor,
+        &rounded_target_period_by_unit,
+    );
+    let repaired_discounted_target_score_proxy = discounted_target_score_from_objective_index(
+        &objective_score_by_unit,
+        discount_factor,
+        &base_target_period_by_unit,
+    );
     let local_optimizer_diagnostics = match local_optimization_mode {
         LocalOptimizationMode::Enabled => optimize_unit_target_periods_locally(
             &mut target_period_by_unit,
@@ -856,7 +906,11 @@ fn round_and_repair_unit_target_periods_with_local_optimization(
             &objective_score_by_unit,
             discount_factor,
             horizon_last_period,
-            None,
+            build_local_optimizer_budget_profile(
+                LocalOptimizationMode::Enabled,
+                base_target_period_by_unit.len(),
+                horizon_last_period,
+            ),
         ),
         LocalOptimizationMode::FocusedRefreshBudgeted => optimize_unit_target_periods_locally(
             &mut target_period_by_unit,
@@ -866,17 +920,39 @@ fn round_and_repair_unit_target_periods_with_local_optimization(
             &objective_score_by_unit,
             discount_factor,
             horizon_last_period,
-            Some(focused_refresh_local_optimizer_iteration_budget(
+            build_local_optimizer_budget_profile(
+                LocalOptimizationMode::FocusedRefreshBudgeted,
+                base_target_period_by_unit.len(),
                 horizon_last_period,
-            )),
+            ),
         ),
         LocalOptimizationMode::SkippedFocusedRefresh => {
-            build_skipped_focused_local_optimizer_diagnostics()
+            build_skipped_focused_local_optimizer_diagnostics(
+                base_target_period_by_unit.len(),
+                horizon_last_period,
+            )
         }
+    };
+    let local_search_discounted_target_score_proxy = discounted_target_score_from_objective_index(
+        &objective_score_by_unit,
+        discount_factor,
+        &target_period_by_unit,
+    );
+    let target_score_decomposition = LpBzUnitTargetScoreDecomposition {
+        rounded_discounted_target_score_proxy,
+        repaired_discounted_target_score_proxy,
+        local_search_discounted_target_score_proxy,
+        repair_score_delta_vs_round_proxy: repaired_discounted_target_score_proxy
+            - rounded_discounted_target_score_proxy,
+        local_search_score_delta_vs_repair_proxy: local_search_discounted_target_score_proxy
+            - repaired_discounted_target_score_proxy,
+        local_search_score_delta_vs_round_proxy: local_search_discounted_target_score_proxy
+            - rounded_discounted_target_score_proxy,
     };
     let local_improvement_move_count = local_optimizer_diagnostics.improving_move_count;
     assert_precedence_feasible_unit_targets(scheduling_problem, &target_period_by_unit)?;
     Ok(LpBzUnitRoundRepairResult {
+        target_score_decomposition,
         target_period_by_unit,
         repaired_unit_target_count,
         horizon_clamp_count,
@@ -885,13 +961,37 @@ fn round_and_repair_unit_target_periods_with_local_optimization(
     })
 }
 
-fn build_skipped_focused_local_optimizer_diagnostics() -> LpBzLocalOptimizerDiagnostics {
+fn discounted_target_score_from_objective_index(
+    objective_score_by_unit: &BTreeMap<SchedulingUnitId, f64>,
+    discount_factor: f64,
+    target_period_by_unit: &BTreeMap<SchedulingUnitId, usize>,
+) -> f64 {
+    target_period_by_unit
+        .iter()
+        .map(|(unit_id, period_index)| {
+            objective_score_by_unit.get(unit_id).copied().unwrap_or(0.0)
+                / discount_factor.powi(*period_index as i32)
+        })
+        .sum()
+}
+
+fn build_skipped_focused_local_optimizer_diagnostics(
+    target_unit_count: usize,
+    horizon_last_period: usize,
+) -> LpBzLocalOptimizerDiagnostics {
+    let budget_profile = build_local_optimizer_budget_profile(
+        LocalOptimizationMode::SkippedFocusedRefresh,
+        target_unit_count,
+        horizon_last_period,
+    );
     LpBzLocalOptimizerDiagnostics {
         strategy_label: FOCUSED_REFRESH_SKIPPED_LOCAL_OPTIMIZER_REASON.to_owned(),
+        budget_profile,
         max_iteration_count: 0,
         executed_iteration_count: 0,
         improving_move_count: 0,
         termination_reason: FOCUSED_REFRESH_SKIPPED_LOCAL_OPTIMIZER_REASON.to_owned(),
+        residual_opportunity: no_residual_local_optimizer_opportunity(),
     }
 }
 
@@ -907,53 +1007,27 @@ fn optimize_unit_target_periods_locally(
     objective_score_by_unit: &BTreeMap<SchedulingUnitId, f64>,
     discount_factor: f64,
     horizon_last_period: usize,
-    max_iteration_count_override: Option<usize>,
+    budget_profile: LpBzLocalOptimizerBudgetProfile,
 ) -> LpBzLocalOptimizerDiagnostics {
     let strategy_label =
         "deterministic-adjacent-swap-plus-period-ejection-plus-precedence-chain-v8".to_owned();
-    if target_period_by_unit.len() < 2 || horizon_last_period == 0 {
+    let max_iterations = budget_profile.effective_iteration_budget;
+    if max_iterations == 0 {
         return LpBzLocalOptimizerDiagnostics {
             strategy_label,
+            budget_profile,
             max_iteration_count: 0,
             executed_iteration_count: 0,
             improving_move_count: 0,
             termination_reason: "disabled-insufficient-target-space".to_owned(),
+            residual_opportunity: no_residual_local_optimizer_opportunity(),
         };
     }
-    let derived_max_iterations = target_period_by_unit
-        .len()
-        .saturating_mul(horizon_last_period.saturating_add(1))
-        .saturating_mul(2)
-        .max(1);
-    let max_iterations = max_iteration_count_override
-        .unwrap_or(derived_max_iterations)
-        .min(derived_max_iterations)
-        .max(1);
     let mut applied_move_count = 0usize;
     let mut executed_iteration_count = 0usize;
     for _ in 0..max_iterations {
         executed_iteration_count += 1;
-        let unit_ids_by_period = build_unit_ids_by_period(target_period_by_unit);
-        let best_swap = find_best_local_swap_move(
-            target_period_by_unit,
-            predecessor_ids_by_unit,
-            successor_unit_ids_by_unit,
-            objective_score_by_unit,
-            discount_factor,
-            horizon_last_period,
-        )
-        .map(LpBzLocalMove::Swap);
-        let best_path = find_best_period_ejection_move(
-            target_period_by_unit,
-            &unit_ids_by_period,
-            predecessor_ids_by_unit,
-            successor_unit_ids_by_unit,
-            objective_score_by_unit,
-            discount_factor,
-            horizon_last_period,
-        )
-        .map(LpBzLocalMove::Path);
-        let best_chain = find_best_precedence_chain_move(
+        let best_move = find_best_local_move(
             target_period_by_unit,
             base_target_period_by_unit,
             predecessor_ids_by_unit,
@@ -961,40 +1035,177 @@ fn optimize_unit_target_periods_locally(
             objective_score_by_unit,
             discount_factor,
             horizon_last_period,
-        )
-        .map(LpBzLocalMove::Chain);
-        let mut best_move: Option<LpBzLocalMove> = None;
-        for candidate_move in [best_swap, best_path, best_chain].into_iter().flatten() {
-            if should_replace_local_move(&candidate_move, best_move.as_ref(), 1.0e-12) {
-                best_move = Some(candidate_move);
-            }
-        }
+        );
         let Some(best_move) = best_move else {
             return LpBzLocalOptimizerDiagnostics {
                 strategy_label,
+                budget_profile,
                 max_iteration_count: max_iterations,
                 executed_iteration_count,
                 improving_move_count: applied_move_count,
                 termination_reason: "no-improving-local-move".to_owned(),
+                residual_opportunity: no_residual_local_optimizer_opportunity(),
             };
         };
         apply_local_move(target_period_by_unit, best_move);
         applied_move_count += 1;
     }
+    let residual_opportunity = build_local_optimizer_residual_opportunity(find_best_local_move(
+        target_period_by_unit,
+        base_target_period_by_unit,
+        predecessor_ids_by_unit,
+        successor_unit_ids_by_unit,
+        objective_score_by_unit,
+        discount_factor,
+        horizon_last_period,
+    ));
     LpBzLocalOptimizerDiagnostics {
         strategy_label,
+        budget_profile,
         max_iteration_count: max_iterations,
         executed_iteration_count,
         improving_move_count: applied_move_count,
         termination_reason: "max-iterations-reached".to_owned(),
+        residual_opportunity,
     }
 }
 
-fn focused_refresh_local_optimizer_iteration_budget(horizon_last_period: usize) -> usize {
-    horizon_last_period
-        .saturating_add(1)
-        .min(FOCUSED_REFRESH_LOCAL_OPTIMIZER_MAX_ITERATIONS)
-        .max(1)
+fn find_best_local_move(
+    target_period_by_unit: &BTreeMap<SchedulingUnitId, usize>,
+    base_target_period_by_unit: &BTreeMap<SchedulingUnitId, usize>,
+    predecessor_ids_by_unit: &BTreeMap<SchedulingUnitId, Vec<SchedulingUnitId>>,
+    successor_unit_ids_by_unit: &BTreeMap<SchedulingUnitId, Vec<SchedulingUnitId>>,
+    objective_score_by_unit: &BTreeMap<SchedulingUnitId, f64>,
+    discount_factor: f64,
+    horizon_last_period: usize,
+) -> Option<LpBzLocalMove> {
+    let unit_ids_by_period = build_unit_ids_by_period(target_period_by_unit);
+    let best_swap = find_best_local_swap_move(
+        target_period_by_unit,
+        predecessor_ids_by_unit,
+        successor_unit_ids_by_unit,
+        objective_score_by_unit,
+        discount_factor,
+        horizon_last_period,
+    )
+    .map(LpBzLocalMove::Swap);
+    let best_path = find_best_period_ejection_move(
+        target_period_by_unit,
+        &unit_ids_by_period,
+        predecessor_ids_by_unit,
+        successor_unit_ids_by_unit,
+        objective_score_by_unit,
+        discount_factor,
+        horizon_last_period,
+    )
+    .map(LpBzLocalMove::Path);
+    let best_chain = find_best_precedence_chain_move(
+        target_period_by_unit,
+        base_target_period_by_unit,
+        predecessor_ids_by_unit,
+        successor_unit_ids_by_unit,
+        objective_score_by_unit,
+        discount_factor,
+        horizon_last_period,
+    )
+    .map(LpBzLocalMove::Chain);
+    let mut best_move: Option<LpBzLocalMove> = None;
+    for candidate_move in [best_swap, best_path, best_chain].into_iter().flatten() {
+        if should_replace_local_move(&candidate_move, best_move.as_ref(), 1.0e-12) {
+            best_move = Some(candidate_move);
+        }
+    }
+    best_move
+}
+
+fn no_residual_local_optimizer_opportunity() -> LpBzLocalOptimizerResidualOpportunity {
+    LpBzLocalOptimizerResidualOpportunity {
+        improving_move_available: false,
+        move_kind_label: "none".to_owned(),
+        discounted_gain: 0.0,
+    }
+}
+
+fn build_local_optimizer_residual_opportunity(
+    local_move: Option<LpBzLocalMove>,
+) -> LpBzLocalOptimizerResidualOpportunity {
+    let Some(local_move) = local_move else {
+        return no_residual_local_optimizer_opportunity();
+    };
+    LpBzLocalOptimizerResidualOpportunity {
+        improving_move_available: true,
+        move_kind_label: local_move_kind_label(&local_move).to_owned(),
+        discounted_gain: local_move_discounted_gain(&local_move),
+    }
+}
+
+fn build_local_optimizer_budget_profile(
+    local_optimization_mode: LocalOptimizationMode,
+    target_unit_count: usize,
+    horizon_last_period: usize,
+) -> LpBzLocalOptimizerBudgetProfile {
+    let horizon_period_count = horizon_last_period.saturating_add(1);
+    let full_iteration_budget =
+        derived_local_optimizer_iteration_budget(target_unit_count, horizon_last_period);
+    let requested_iteration_budget = match local_optimization_mode {
+        LocalOptimizationMode::Enabled => full_iteration_budget,
+        LocalOptimizationMode::FocusedRefreshBudgeted => {
+            focused_refresh_local_optimizer_iteration_budget(target_unit_count, horizon_last_period)
+        }
+        LocalOptimizationMode::SkippedFocusedRefresh => 0,
+    };
+    let effective_iteration_budget = if full_iteration_budget == 0 {
+        0
+    } else {
+        requested_iteration_budget.min(full_iteration_budget).max(1)
+    };
+
+    LpBzLocalOptimizerBudgetProfile {
+        mode_label: match local_optimization_mode {
+            LocalOptimizationMode::Enabled => "full-round-repair".to_owned(),
+            LocalOptimizationMode::FocusedRefreshBudgeted => "focused-refresh-budgeted".to_owned(),
+            LocalOptimizationMode::SkippedFocusedRefresh => "skipped-focused-refresh".to_owned(),
+        },
+        target_unit_count,
+        horizon_period_count,
+        full_iteration_budget,
+        requested_iteration_budget,
+        effective_iteration_budget,
+    }
+}
+
+fn derived_local_optimizer_iteration_budget(
+    target_unit_count: usize,
+    horizon_last_period: usize,
+) -> usize {
+    if target_unit_count < 2 || horizon_last_period == 0 {
+        return 0;
+    }
+
+    target_unit_count
+        .saturating_mul(horizon_last_period.saturating_add(1))
+        .saturating_mul(2)
+}
+
+fn focused_refresh_local_optimizer_iteration_budget(
+    target_unit_count: usize,
+    horizon_last_period: usize,
+) -> usize {
+    let full_iteration_budget =
+        derived_local_optimizer_iteration_budget(target_unit_count, horizon_last_period);
+    if full_iteration_budget == 0 {
+        return 0;
+    }
+
+    let horizon_component = horizon_last_period.saturating_add(1).saturating_mul(2);
+    let unit_component = target_unit_count.saturating_add(1) / 2;
+    horizon_component
+        .saturating_add(unit_component)
+        .clamp(
+            FOCUSED_REFRESH_LOCAL_OPTIMIZER_MIN_ITERATIONS,
+            FOCUSED_REFRESH_LOCAL_OPTIMIZER_MAX_ITERATIONS,
+        )
+        .min(full_iteration_budget)
 }
 
 fn find_best_local_swap_move(
@@ -1605,6 +1816,14 @@ fn local_move_discounted_gain(local_move: &LpBzLocalMove) -> f64 {
         LpBzLocalMove::Swap(local_swap_move) => local_swap_move.discounted_gain,
         LpBzLocalMove::Path(local_path_move) => local_path_move.discounted_gain,
         LpBzLocalMove::Chain(local_chain_move) => local_chain_move.discounted_gain,
+    }
+}
+
+fn local_move_kind_label(local_move: &LpBzLocalMove) -> &'static str {
+    match local_move {
+        LpBzLocalMove::Swap(_) => "swap",
+        LpBzLocalMove::Path(_) => "path",
+        LpBzLocalMove::Chain(_) => "chain",
     }
 }
 
@@ -2516,6 +2735,8 @@ fn round_period_index(period_index: f64) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::build_target_period_seeded_schedule_from_lp_round_repair_v6_focused;
     use crate::marvin_support::{
         MarvinScheduleAssignment, MarvinScheduleProblemKind, MarvinScheduleSolution,
@@ -2565,12 +2786,39 @@ mod tests {
             diagnostics.strategy_label,
             "deterministic-adjacent-swap-plus-period-ejection-plus-precedence-chain-v8"
         );
+        assert_eq!(
+            diagnostics.budget_profile.mode_label,
+            "focused-refresh-budgeted"
+        );
         assert!(diagnostics.max_iteration_count > 0);
         assert!(diagnostics.executed_iteration_count > 0);
+        assert!(
+            artifacts
+                .unit_round_repair
+                .target_score_decomposition
+                .rounded_discounted_target_score_proxy
+                >= artifacts
+                    .unit_round_repair
+                    .target_score_decomposition
+                    .repaired_discounted_target_score_proxy
+        );
+        assert!(
+            artifacts
+                .unit_round_repair
+                .target_score_decomposition
+                .local_search_discounted_target_score_proxy
+                >= artifacts
+                    .unit_round_repair
+                    .target_score_decomposition
+                    .repaired_discounted_target_score_proxy
+        );
         assert!(!super::local_optimizer_runtime_was_skipped(
             &diagnostics.termination_reason
         ));
         assert!(artifacts.unit_round_repair.local_improvement_move_count > 0);
+        assert!(!diagnostics.residual_opportunity.improving_move_available);
+        assert_eq!(diagnostics.residual_opportunity.move_kind_label, "none");
+        assert_eq!(diagnostics.residual_opportunity.discounted_gain, 0.0);
         assert_eq!(
             artifacts
                 .unit_round_repair
@@ -2589,7 +2837,7 @@ mod tests {
     }
 
     #[test]
-    fn focused_round_repair_caps_iterations_to_two_period_sweeps() {
+    fn focused_round_repair_surfaces_explicit_non_trivial_budget_profile() {
         let phase_plan = sample_phase_plan();
         let scheduling_problem = sample_scheduling_problem();
         let lp_solution = MarvinScheduleSolution {
@@ -2620,12 +2868,116 @@ mod tests {
         )
         .expect("focused round/repair should build an optimized seeded schedule");
 
+        let diagnostics = &artifacts.unit_round_repair.local_optimizer_diagnostics;
+        let budget_profile = &diagnostics.budget_profile;
+        assert_eq!(
+            super::focused_refresh_local_optimizer_iteration_budget(
+                scheduling_problem.units().len(),
+                scheduling_problem.periods().len() - 1
+            ),
+            5
+        );
+        assert_eq!(budget_profile.mode_label, "focused-refresh-budgeted");
+        assert_eq!(budget_profile.target_unit_count, 2);
+        assert_eq!(budget_profile.horizon_period_count, 2);
+        assert_eq!(budget_profile.full_iteration_budget, 8);
+        assert_eq!(budget_profile.requested_iteration_budget, 5);
+        assert_eq!(budget_profile.effective_iteration_budget, 5);
+        assert_eq!(diagnostics.max_iteration_count, 5);
+        assert_eq!(
+            diagnostics.max_iteration_count,
+            budget_profile.effective_iteration_budget
+        );
         assert_eq!(
             artifacts
                 .unit_round_repair
-                .local_optimizer_diagnostics
-                .max_iteration_count,
-            super::focused_refresh_local_optimizer_iteration_budget(1)
+                .target_score_decomposition
+                .repair_score_delta_vs_round_proxy,
+            artifacts
+                .unit_round_repair
+                .target_score_decomposition
+                .repaired_discounted_target_score_proxy
+                - artifacts
+                    .unit_round_repair
+                    .target_score_decomposition
+                    .rounded_discounted_target_score_proxy
+        );
+        assert_eq!(
+            artifacts
+                .unit_round_repair
+                .target_score_decomposition
+                .local_search_score_delta_vs_round_proxy,
+            artifacts
+                .unit_round_repair
+                .target_score_decomposition
+                .local_search_discounted_target_score_proxy
+                - artifacts
+                    .unit_round_repair
+                    .target_score_decomposition
+                    .rounded_discounted_target_score_proxy
+        );
+    }
+
+    #[test]
+    fn local_optimizer_budget_hit_surfaces_explicit_residual_headroom_payload() {
+        let unit_a = SchedulingUnitId::new("unit-a").expect("unit id should be valid");
+        let unit_b = SchedulingUnitId::new("unit-b").expect("unit id should be valid");
+        let unit_c = SchedulingUnitId::new("unit-c").expect("unit id should be valid");
+        let mut target_period_by_unit = BTreeMap::from([
+            (unit_a.clone(), 0usize),
+            (unit_b.clone(), 1usize),
+            (unit_c.clone(), 2usize),
+        ]);
+        let base_target_period_by_unit = target_period_by_unit.clone();
+        let predecessor_ids_by_unit = BTreeMap::from([
+            (unit_a.clone(), Vec::new()),
+            (unit_b.clone(), Vec::new()),
+            (unit_c.clone(), Vec::new()),
+        ]);
+        let successor_unit_ids_by_unit = BTreeMap::from([
+            (unit_a.clone(), Vec::new()),
+            (unit_b.clone(), Vec::new()),
+            (unit_c.clone(), Vec::new()),
+        ]);
+        let objective_score_by_unit = BTreeMap::from([
+            (unit_a.clone(), 1.0),
+            (unit_b.clone(), 2.0),
+            (unit_c.clone(), 100.0),
+        ]);
+
+        let diagnostics = super::optimize_unit_target_periods_locally(
+            &mut target_period_by_unit,
+            &base_target_period_by_unit,
+            &predecessor_ids_by_unit,
+            &successor_unit_ids_by_unit,
+            &objective_score_by_unit,
+            2.0,
+            2,
+            super::LpBzLocalOptimizerBudgetProfile {
+                mode_label: "test-budget-hit".to_owned(),
+                target_unit_count: 3,
+                horizon_period_count: 3,
+                full_iteration_budget: 6,
+                requested_iteration_budget: 1,
+                effective_iteration_budget: 1,
+            },
+        );
+
+        assert_eq!(diagnostics.termination_reason, "max-iterations-reached");
+        assert_eq!(diagnostics.executed_iteration_count, 1);
+        assert_eq!(diagnostics.improving_move_count, 1);
+        if diagnostics.residual_opportunity.improving_move_available {
+            assert_ne!(diagnostics.residual_opportunity.move_kind_label, "none");
+            assert!(diagnostics.residual_opportunity.discounted_gain > 0.0);
+        } else {
+            assert_eq!(diagnostics.residual_opportunity.move_kind_label, "none");
+            assert_eq!(diagnostics.residual_opportunity.discounted_gain, 0.0);
+        }
+        assert!(
+            target_period_by_unit
+                .get(&unit_c)
+                .copied()
+                .is_some_and(|period| period < 2)
         );
     }
 

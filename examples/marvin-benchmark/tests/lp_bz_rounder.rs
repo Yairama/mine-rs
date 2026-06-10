@@ -55,9 +55,45 @@ fn lp_guided_round_repair_is_deterministic_and_precedence_feasible() {
     assert_eq!(
         artifacts_first
             .unit_round_repair
+            .target_score_decomposition
+            .local_search_score_delta_vs_repair_proxy,
+        0.0
+    );
+    assert_eq!(
+        artifacts_first
+            .unit_round_repair
+            .target_score_decomposition
+            .local_search_score_delta_vs_round_proxy,
+        artifacts_first
+            .unit_round_repair
+            .target_score_decomposition
+            .local_search_discounted_target_score_proxy
+            - artifacts_first
+                .unit_round_repair
+                .target_score_decomposition
+                .rounded_discounted_target_score_proxy
+    );
+    assert_eq!(
+        artifacts_first
+            .unit_round_repair
             .local_optimizer_diagnostics
             .strategy_label,
         "deterministic-adjacent-swap-plus-period-ejection-plus-precedence-chain-v8"
+    );
+    assert!(
+        !artifacts_first
+            .unit_round_repair
+            .local_optimizer_diagnostics
+            .residual_opportunity
+            .improving_move_available
+    );
+    assert_eq!(
+        artifacts_first
+            .unit_round_repair
+            .local_optimizer_diagnostics
+            .residual_opportunity
+            .move_kind_label,
+        "none"
     );
     assert_eq!(
         artifacts_first
@@ -116,6 +152,47 @@ fn focused_round_repair_executes_local_optimizer_and_preserves_feasible_seeded_s
             .local_optimizer_diagnostics
             .executed_iteration_count
             > 0
+    );
+    assert!(
+        !artifacts
+            .unit_round_repair
+            .local_optimizer_diagnostics
+            .residual_opportunity
+            .improving_move_available
+    );
+    assert!(
+        artifacts
+            .unit_round_repair
+            .target_score_decomposition
+            .rounded_discounted_target_score_proxy
+            >= artifacts
+                .unit_round_repair
+                .target_score_decomposition
+                .repaired_discounted_target_score_proxy
+    );
+    assert!(
+        artifacts
+            .unit_round_repair
+            .target_score_decomposition
+            .local_search_discounted_target_score_proxy
+            >= artifacts
+                .unit_round_repair
+                .target_score_decomposition
+                .repaired_discounted_target_score_proxy
+    );
+    assert_eq!(
+        artifacts
+            .unit_round_repair
+            .target_score_decomposition
+            .local_search_score_delta_vs_round_proxy,
+        artifacts
+            .unit_round_repair
+            .target_score_decomposition
+            .local_search_discounted_target_score_proxy
+            - artifacts
+                .unit_round_repair
+                .target_score_decomposition
+                .rounded_discounted_target_score_proxy
     );
     assert_precedence_feasible_unit_targets(
         &scheduling_problem,
