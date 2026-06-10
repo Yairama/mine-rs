@@ -59,9 +59,9 @@ pub use phase_design::{
 pub use phases::{PhaseAssignment, PhaseTaggingReport, assign_phases_from_column};
 pub use pit_shells::{
     PitShell, PitShellMetrics, PitShellSet, compute_pit_shell_metrics, generate_nested_shells,
-    generate_nested_shells_from_model, generate_nested_shells_from_weight_map,
-    generate_nested_shells_from_weight_scenarios, read_pit_shell_set_json, uniform_revenue_factors,
-    write_pit_shell_set_json,
+    generate_nested_shells_from_model, generate_nested_shells_from_monotone_weight_scenarios,
+    generate_nested_shells_from_weight_map, generate_nested_shells_from_weight_scenarios,
+    read_pit_shell_set_json, uniform_revenue_factors, write_pit_shell_set_json,
 };
 pub use precedence::{
     BlockPrecedenceTemplate, PrecedenceEdge, PrecedenceGraph, PrecedenceNode, PrecedenceOffset,

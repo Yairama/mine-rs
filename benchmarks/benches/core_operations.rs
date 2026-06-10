@@ -26,8 +26,9 @@ use mine_sdk::{
     ScenarioId, SchedulingObjectiveTerm, SchedulingPeriod, SchedulingProblem,
     SchedulingResourceBound, SchedulingResourceId, SchedulingResourceRequirement, SchedulingUnit,
     SchedulingUnitId, build_block_precedence_graph, build_max_closure_graph,
-    build_ready_frontier_schedule, generate_nested_shells_from_weight_map, ijk_to_linear,
-    solve_cpit_with_toposort, solve_upl_exact, xyz_to_ijk,
+    build_ready_frontier_schedule, generate_nested_shells_from_monotone_weight_scenarios,
+    generate_nested_shells_from_weight_map, generate_nested_shells_from_weight_scenarios,
+    ijk_to_linear, solve_cpit_with_toposort, solve_upl_exact, xyz_to_ijk,
 };
 
 const GRID_NX: usize = 20;
@@ -192,6 +193,44 @@ fn bench_nested_shells(c: &mut Criterion) {
                 black_box(&factors),
             )
             .expect("shells should generate");
+            black_box(shells.shells.len())
+        });
+    });
+
+    // Escenarios revenue-scaled monótonos (solo el componente positivo escala
+    // con el factor) para comparar el sweep naive contra la ruta anidada por
+    // restricción monótona (MR-210).
+    let monotone_scenarios: Vec<(f64, std::collections::BTreeMap<usize, f64>)> = factors
+        .iter()
+        .map(|factor| {
+            (
+                *factor,
+                weights
+                    .iter()
+                    .map(|(linear, weight)| (*linear, factor * weight.max(0.0) + weight.min(0.0)))
+                    .collect(),
+            )
+        })
+        .collect();
+
+    c.bench_function("shells/naive_sweep_monotone_scenarios_5_factors", |b| {
+        b.iter(|| {
+            let shells = generate_nested_shells_from_weight_scenarios(
+                black_box(&monotone_scenarios),
+                black_box(&graph),
+            )
+            .expect("naive sweep should generate");
+            black_box(shells.shells.len())
+        });
+    });
+
+    c.bench_function("shells/monotone_restricted_sweep_5_factors", |b| {
+        b.iter(|| {
+            let shells = generate_nested_shells_from_monotone_weight_scenarios(
+                black_box(&monotone_scenarios),
+                black_box(&graph),
+            )
+            .expect("monotone sweep should generate");
             black_box(shells.shells.len())
         });
     });

@@ -128,12 +128,12 @@ pub use planning::{
     derive_phase_design_from_nested_shells_from_map, derive_precedence_template_from_slope,
     derive_pushbacks_from_nested_shells, derive_pushbacks_from_nested_shells_from_map,
     evaluate_long_term_schedule_material_flows, generate_nested_shells,
-    generate_nested_shells_from_model, generate_nested_shells_from_weight_map,
-    generate_nested_shells_from_weight_scenarios, read_pit_shell_set_json,
-    read_precedence_graph_json, solve_cpit_with_toposort, solve_decomposed_scheduling_problem,
-    solve_pcpsp_with_toposort, solve_small_scheduling_problem, solve_upl_exact,
-    uniform_revenue_factors, validate_vertical_advance, verify_closure, write_pit_shell_set_json,
-    write_precedence_graph_json,
+    generate_nested_shells_from_model, generate_nested_shells_from_monotone_weight_scenarios,
+    generate_nested_shells_from_weight_map, generate_nested_shells_from_weight_scenarios,
+    read_pit_shell_set_json, read_precedence_graph_json, solve_cpit_with_toposort,
+    solve_decomposed_scheduling_problem, solve_pcpsp_with_toposort, solve_small_scheduling_problem,
+    solve_upl_exact, uniform_revenue_factors, validate_vertical_advance, verify_closure,
+    write_pit_shell_set_json, write_precedence_graph_json,
 };
 pub use reblock::{
     AdaptiveReblockPrototype, AdaptiveResolutionStrategy, AdaptiveZonePrototype, AdaptiveZoneRule,

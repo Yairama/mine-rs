@@ -16,8 +16,12 @@ use mine_blockmodel::BlockModel;
 use mine_core::{ColumnId, MineError};
 use serde::{Deserialize, Serialize};
 
-use crate::max_closure::build_max_closure_graph;
-use crate::precedence::PrecedenceGraph;
+use std::collections::BTreeSet;
+
+use crate::max_closure::{
+    MaxClosureArc, MaxClosureGraph, MaxClosureNodeId, build_max_closure_graph,
+};
+use crate::precedence::{PrecedenceGraph, PrecedenceNode};
 use crate::upl_solver::{UplSolverResult, solve_upl_exact};
 
 // ── Contratos públicos ────────────────────────────────────────────────────────
@@ -142,6 +146,263 @@ pub fn generate_nested_shells_from_weight_scenarios(
     weight_scenarios: &[(f64, BTreeMap<usize, f64>)],
     precedence_graph: &PrecedenceGraph,
 ) -> Result<PitShellSet, MineError> {
+    validate_weight_scenarios(weight_scenarios)?;
+
+    let total_block_count = weight_scenarios[0].1.len();
+    let factors_evaluated = weight_scenarios.len();
+    let mut shells: Vec<PitShell> = Vec::with_capacity(weight_scenarios.len());
+    let mut seen_memberships: Vec<Vec<usize>> = Vec::new();
+    let mut sorted_scenarios = weight_scenarios.to_vec();
+    sorted_scenarios.sort_by(|left, right| left.0.total_cmp(&right.0));
+
+    for (factor, block_weights) in sorted_scenarios {
+        let closure_graph = build_max_closure_graph(&block_weights, precedence_graph)?;
+        let result = solve_upl_exact(&closure_graph)?;
+        let selected = result.selected_blocks.clone();
+        if seen_memberships.contains(&selected) {
+            continue;
+        }
+        seen_memberships.push(selected);
+        shells.push(PitShell::from_result(factor, result));
+    }
+
+    let unique_shell_count = shells.len();
+
+    Ok(PitShellSet {
+        shells,
+        total_block_count,
+        factors_evaluated,
+        unique_shell_count,
+    })
+}
+
+/// Genera shells anidados desde escenarios de peso monótonos, reutilizando la
+/// propiedad de anidamiento para no re-resolver el problema completo por factor.
+///
+/// # Método (MR-210)
+///
+/// Cuando los pesos por bloque son monótonos no decrecientes en el factor
+/// (`w_b(λ_i) <= w_b(λ_j)` para todo bloque `b` y todo par `λ_i <= λ_j`), las
+/// clausuras óptimas minimales están anidadas: `pit(λ_i) ⊆ pit(λ_j)`. Esta es
+/// la monotonía clásica de optimización paramétrica sobre lattices:
+///
+/// - Topkis (1978), "Minimizing a Submodular Function on a Lattice",
+///   Operations Research 26(2):305-321. doi 10.1287/opre.26.2.305 (literatura
+///   académica; teorema de monotonía de soluciones óptimas extremas).
+/// - Gallo, Grigoriadis, Tarjan (1989), "A Fast Parametric Maximum Flow
+///   Algorithm and Applications", SIAM Journal on Computing 18(1):30-55.
+///   doi 10.1137/0218003 (caso paramétrico de max-flow con cortes anidados).
+/// - Hochbaum (2008), Operations Research 56(4):992-1009 (pseudoflow; la ruta
+///   paramétrica completa sigue siendo el siguiente paso natural si esta
+///   restricción anidada deja de ser suficiente).
+///
+/// El sweep se resuelve en orden descendente de factor: el factor mayor usa el
+/// problema completo y cada factor menor se restringe a los bloques
+/// seleccionados por el factor inmediatamente superior. Como el solver Dinic
+/// retorna la clausura óptima minimal (alcanzable desde la fuente en el grafo
+/// residual) de forma determinista, el resultado restringido coincide
+/// exactamente con el resultado del sweep naive factor por factor.
+///
+/// # Errores
+///
+/// Además de las validaciones del sweep naive, esta ruta rechaza con error
+/// explícito escenarios que violen la monotonía por bloque (sin fallback
+/// silencioso): en ese caso el anidamiento no está garantizado y debe usarse
+/// `generate_nested_shells_from_weight_scenarios`.
+pub fn generate_nested_shells_from_monotone_weight_scenarios(
+    weight_scenarios: &[(f64, BTreeMap<usize, f64>)],
+    precedence_graph: &PrecedenceGraph,
+) -> Result<PitShellSet, MineError> {
+    validate_weight_scenarios(weight_scenarios)?;
+
+    let mut sorted_scenarios = weight_scenarios.to_vec();
+    sorted_scenarios.sort_by(|left, right| left.0.total_cmp(&right.0));
+
+    // Validación explícita de monotonía por bloque entre factores consecutivos.
+    for pair in sorted_scenarios.windows(2) {
+        let (smaller_factor, smaller_weights) = &pair[0];
+        let (larger_factor, larger_weights) = &pair[1];
+        for (linear_index, smaller_weight) in smaller_weights {
+            let larger_weight = larger_weights
+                .get(linear_index)
+                .copied()
+                .unwrap_or(f64::NEG_INFINITY);
+            if *smaller_weight > larger_weight {
+                return Err(MineError::invalid_parameter(
+                    "weight_scenarios",
+                    format!(
+                        "blockwise monotonicity violated between factors {smaller_factor} and \
+                         {larger_factor}: block `{linear_index}` has weight {smaller_weight} > \
+                         {larger_weight}; nesting is not guaranteed, use \
+                         generate_nested_shells_from_weight_scenarios instead"
+                    ),
+                ));
+            }
+        }
+    }
+
+    let total_block_count = sorted_scenarios[0].1.len();
+    let factors_evaluated = sorted_scenarios.len();
+
+    // Resolución descendente con restricción al pit del factor superior. Las
+    // aristas restringidas se filtran desde la lista del paso anterior (los
+    // pits se contraen monótonamente), evitando reescanear el grafo completo
+    // y revalidar el DAG por factor.
+    let mut results_by_factor: Vec<(f64, UplSolverResult)> =
+        Vec::with_capacity(sorted_scenarios.len());
+    let mut previous_selection: Option<Vec<usize>> = None;
+    let mut restricted_edges: Option<Vec<(usize, usize)>> = None;
+    for (factor, block_weights) in sorted_scenarios.iter().rev() {
+        let result = match &previous_selection {
+            None => {
+                // Factor mayor: problema completo.
+                let closure_graph = build_max_closure_graph(block_weights, precedence_graph)?;
+                solve_upl_exact(&closure_graph)?
+            }
+            Some(selection) if selection.is_empty() => {
+                // El pit del factor superior es vacío: por anidamiento, todos
+                // los factores menores también producen pit vacío.
+                empty_upl_result(block_weights.len())
+            }
+            Some(selection) => {
+                let selected_set: BTreeSet<usize> = selection.iter().copied().collect();
+                let edges = match restricted_edges.take() {
+                    // Primer paso restringido: filtra el grafo completo una vez.
+                    None => precedence_graph
+                        .edges()
+                        .iter()
+                        .filter_map(|edge| {
+                            let (PrecedenceNode::Block(pred_idx), PrecedenceNode::Block(succ_idx)) =
+                                (edge.predecessor(), edge.successor())
+                            else {
+                                return None;
+                            };
+                            (selected_set.contains(pred_idx) && selected_set.contains(succ_idx))
+                                .then_some((*pred_idx, *succ_idx))
+                        })
+                        .collect::<Vec<_>>(),
+                    // Pasos siguientes: filtra la lista ya restringida.
+                    Some(previous_edges) => previous_edges
+                        .into_iter()
+                        .filter(|(pred_idx, succ_idx)| {
+                            selected_set.contains(pred_idx) && selected_set.contains(succ_idx)
+                        })
+                        .collect::<Vec<_>>(),
+                };
+
+                let restricted_weights: BTreeMap<usize, f64> = selection
+                    .iter()
+                    .filter_map(|linear_index| {
+                        block_weights
+                            .get(linear_index)
+                            .map(|weight| (*linear_index, *weight))
+                    })
+                    .collect();
+                let closure_graph =
+                    build_restricted_max_closure_graph(&restricted_weights, &edges)?;
+                restricted_edges = Some(edges);
+                solve_upl_exact(&closure_graph)?
+            }
+        };
+        previous_selection = Some(result.selected_blocks.clone());
+        results_by_factor.push((*factor, result));
+    }
+
+    // Ensamblado ascendente con la misma semántica de dedup del sweep naive
+    // (la primera membresía vista —el factor más pequeño— se conserva).
+    results_by_factor.reverse();
+    let mut shells: Vec<PitShell> = Vec::with_capacity(results_by_factor.len());
+    let mut seen_memberships: Vec<Vec<usize>> = Vec::new();
+    for (factor, result) in results_by_factor {
+        let selected = result.selected_blocks.clone();
+        if seen_memberships.contains(&selected) {
+            continue;
+        }
+        seen_memberships.push(selected);
+        shells.push(PitShell::from_result(factor, result));
+    }
+
+    let unique_shell_count = shells.len();
+
+    Ok(PitShellSet {
+        shells,
+        total_block_count,
+        factors_evaluated,
+        unique_shell_count,
+    })
+}
+
+/// Resultado UPL vacío sintetizado para factores cuyo pit superior ya es vacío.
+fn empty_upl_result(total_block_count: usize) -> UplSolverResult {
+    UplSolverResult {
+        selected_blocks: Vec::new(),
+        pit_value: 0.0,
+        max_flow_value: 0.0,
+        upper_bound: 0.0,
+        selected_block_count: 0,
+        total_block_count,
+    }
+}
+
+/// Construye un `MaxClosureGraph` directamente desde pesos restringidos y
+/// pares de aristas `(pred, succ)` ya filtrados al subconjunto seleccionado.
+///
+/// Replica exactamente la semántica de `build_max_closure_graph` (arcos
+/// fuente/sumidero por signo, bloques de peso cero sin arco, precedencia
+/// `succ → pred` con capacidad infinita) sin reconstruir ni revalidar un
+/// `PrecedenceGraph` intermedio: el subgrafo inducido de un DAG sigue siendo
+/// un DAG, así que la revalidación de ciclos por factor sería trabajo perdido.
+fn build_restricted_max_closure_graph(
+    block_weights: &BTreeMap<usize, f64>,
+    edges: &[(usize, usize)],
+) -> Result<MaxClosureGraph, MineError> {
+    if block_weights.is_empty() {
+        return Err(MineError::invalid_parameter(
+            "block_weights",
+            "max-closure graph requires at least one block weight",
+        ));
+    }
+
+    let mut arcs: Vec<MaxClosureArc> = Vec::with_capacity(block_weights.len() + edges.len());
+    let mut sum_positive_weights = 0.0_f64;
+    let mut sum_negative_weights = 0.0_f64;
+    for (&linear_index, &weight) in block_weights {
+        if weight > 0.0 {
+            sum_positive_weights += weight;
+            arcs.push(MaxClosureArc {
+                from: MaxClosureNodeId::Source,
+                to: MaxClosureNodeId::Block(linear_index),
+                capacity: weight,
+            });
+        } else if weight < 0.0 {
+            sum_negative_weights += weight;
+            arcs.push(MaxClosureArc {
+                from: MaxClosureNodeId::Block(linear_index),
+                to: MaxClosureNodeId::Sink,
+                capacity: weight.abs(),
+            });
+        }
+    }
+    for (pred_idx, succ_idx) in edges {
+        arcs.push(MaxClosureArc {
+            from: MaxClosureNodeId::Block(*succ_idx),
+            to: MaxClosureNodeId::Block(*pred_idx),
+            capacity: f64::INFINITY,
+        });
+    }
+
+    Ok(MaxClosureGraph {
+        block_count: block_weights.len(),
+        block_weights: block_weights.clone(),
+        arcs,
+        sum_positive_weights,
+        sum_negative_weights,
+    })
+}
+
+fn validate_weight_scenarios(
+    weight_scenarios: &[(f64, BTreeMap<usize, f64>)],
+) -> Result<(), MineError> {
     if weight_scenarios.is_empty() {
         return Err(MineError::invalid_parameter(
             "weight_scenarios",
@@ -181,33 +442,7 @@ pub fn generate_nested_shells_from_weight_scenarios(
             }
         }
     }
-
-    let total_block_count = reference_keys.len();
-    let factors_evaluated = weight_scenarios.len();
-    let mut shells: Vec<PitShell> = Vec::with_capacity(weight_scenarios.len());
-    let mut seen_memberships: Vec<Vec<usize>> = Vec::new();
-    let mut sorted_scenarios = weight_scenarios.to_vec();
-    sorted_scenarios.sort_by(|left, right| left.0.total_cmp(&right.0));
-
-    for (factor, block_weights) in sorted_scenarios {
-        let closure_graph = build_max_closure_graph(&block_weights, precedence_graph)?;
-        let result = solve_upl_exact(&closure_graph)?;
-        let selected = result.selected_blocks.clone();
-        if seen_memberships.contains(&selected) {
-            continue;
-        }
-        seen_memberships.push(selected);
-        shells.push(PitShell::from_result(factor, result));
-    }
-
-    let unique_shell_count = shells.len();
-
-    Ok(PitShellSet {
-        shells,
-        total_block_count,
-        factors_evaluated,
-        unique_shell_count,
-    })
+    Ok(())
 }
 
 /// Genera una familia anidada de pit shells desde un mapa `linear_index -> weight`.

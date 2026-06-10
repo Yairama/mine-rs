@@ -432,3 +432,72 @@ fn read_marvin_lp_pcpsp_reference_preserves_fractional_assignments() {
         summary.discounted_objective
     );
 }
+
+/// MR-210: el sweep anidado por restricción monótona debe reproducir
+/// exactamente las membresías del sweep naive sobre Marvin y reducir el
+/// runtime. Usa escenarios revenue-scaled monótonos construidos desde los
+/// valores objetivo abiertos de `marvin.upit` (solo el componente positivo
+/// escala con el factor).
+#[test]
+fn marvin_monotone_nested_shells_match_naive_sweep_and_run_faster() {
+    let dir = marvin_dir();
+    let references_dir = marvin_references_dir();
+    let model = read_benchmark_blocks(dir.join("marvin.blocks"), "marvin")
+        .expect("marvin.blocks should load");
+    let precedence_graph = read_marvin_precedence_graph(references_dir.join("marvin.prec"), &model)
+        .expect("marvin.prec should normalize");
+    let upit_values = read_marvin_upit_block_values(references_dir.join("marvin.upit"), &model)
+        .expect("marvin.upit should normalize");
+
+    let base_weights: BTreeMap<usize, f64> = upit_values.into_iter().collect();
+    let factors = mine_planning::uniform_revenue_factors(7).expect("factors should build");
+    let scenarios: Vec<(f64, BTreeMap<usize, f64>)> = factors
+        .iter()
+        .map(|factor| {
+            (
+                *factor,
+                base_weights
+                    .iter()
+                    .map(|(linear, weight)| (*linear, factor * weight.max(0.0) + weight.min(0.0)))
+                    .collect(),
+            )
+        })
+        .collect();
+
+    let naive_started = std::time::Instant::now();
+    let naive =
+        mine_planning::generate_nested_shells_from_weight_scenarios(&scenarios, &precedence_graph)
+            .expect("naive sweep should succeed");
+    let naive_elapsed = naive_started.elapsed();
+
+    let nested_started = std::time::Instant::now();
+    let nested = mine_planning::generate_nested_shells_from_monotone_weight_scenarios(
+        &scenarios,
+        &precedence_graph,
+    )
+    .expect("monotone sweep should succeed");
+    let nested_elapsed = nested_started.elapsed();
+
+    assert_eq!(
+        naive, nested,
+        "memberships must match the naive sweep exactly"
+    );
+    assert!(
+        nested.unique_shell_count >= 3,
+        "marvin revenue-scaled sweep should produce several distinct shells, got {}",
+        nested.unique_shell_count
+    );
+    // Evidencia de runtime (los valores absolutos dependen de la máquina; la
+    // mejora relativa debe sostenerse en cualquier hardware).
+    println!(
+        "[mr210] marvin 7-factor sweep: naive={:?} nested={:?} speedup={:.2}x shells={}",
+        naive_elapsed,
+        nested_elapsed,
+        naive_elapsed.as_secs_f64() / nested_elapsed.as_secs_f64().max(1e-9),
+        nested.unique_shell_count
+    );
+    assert!(
+        nested_elapsed < naive_elapsed,
+        "monotone sweep should not be slower than the naive sweep (naive {naive_elapsed:?}, nested {nested_elapsed:?})"
+    );
+}
