@@ -108,6 +108,8 @@ pub struct MarvinLpBzCompetitiveProbeSummary {
     pub probe_strategy_label: String,
     pub improvement_status: String,
     pub competitive_budget_profile: LpBzLocalOptimizerBudgetProfile,
+    pub competitive_local_optimizer_runtime_budget_contract:
+        LpBzLocalOptimizerRuntimeBudgetContract,
     pub competitive_local_optimizer_strategy_label: String,
     pub competitive_local_optimizer_termination_reason: String,
     pub competitive_local_optimizer_executed_iteration_count: usize,
@@ -307,6 +309,21 @@ fn build_competitive_probe_summary(
     focused_round_repair: &LpBzUnitRoundRepairResult,
     competitive_probe_round_repair: &LpBzUnitRoundRepairResult,
 ) -> MarvinLpBzCompetitiveProbeSummary {
+    let competitive_local_optimizer_runtime_budget_contract =
+        build_lp_bz_local_optimizer_runtime_budget_contract(
+            &competitive_probe_round_repair
+                .local_optimizer_diagnostics
+                .strategy_label,
+            competitive_probe_round_repair
+                .local_optimizer_diagnostics
+                .max_iteration_count,
+            competitive_probe_round_repair
+                .local_optimizer_diagnostics
+                .executed_iteration_count,
+            &competitive_probe_round_repair
+                .local_optimizer_diagnostics
+                .termination_reason,
+        );
     let competitive_local_search_discounted_target_score_proxy = competitive_probe_round_repair
         .target_score_decomposition
         .local_search_discounted_target_score_proxy;
@@ -339,6 +356,7 @@ fn build_competitive_probe_summary(
             .local_optimizer_diagnostics
             .budget_profile
             .clone(),
+        competitive_local_optimizer_runtime_budget_contract,
         competitive_local_optimizer_strategy_label: competitive_probe_round_repair
             .local_optimizer_diagnostics
             .strategy_label
@@ -532,9 +550,41 @@ fn validate_competitive_probe_summary(
     round_repair: &MarvinLpBzAdapterRoundRepairSummary,
 ) -> Result<(), MineError> {
     let competitive_probe = &round_repair.competitive_probe;
+    validate_lp_bz_local_optimizer_runtime_budget_contract(
+        &competitive_probe.competitive_local_optimizer_runtime_budget_contract,
+    )
+    .map_err(MineError::validation)?;
     if competitive_probe.competitive_budget_profile.mode_label != "full-round-repair" {
         return Err(MineError::validation(
             "Focused LP/BZ adapter competitive probe must surface the uncapped `full-round-repair` budget profile."
+                .to_owned(),
+        ));
+    }
+    if competitive_probe
+        .competitive_local_optimizer_runtime_budget_contract
+        .strategy_label
+        != competitive_probe.competitive_local_optimizer_strategy_label
+        || competitive_probe
+            .competitive_local_optimizer_runtime_budget_contract
+            .executed_iteration_count
+            != competitive_probe.competitive_local_optimizer_executed_iteration_count
+        || competitive_probe
+            .competitive_local_optimizer_runtime_budget_contract
+            .termination_reason
+            != competitive_probe.competitive_local_optimizer_termination_reason
+    {
+        return Err(MineError::validation(
+            "Focused LP/BZ adapter competitive probe must keep strategy, iterations and termination metadata aligned with the explicit competitive runtime budget contract."
+                .to_owned(),
+        ));
+    }
+    if competitive_probe
+        .competitive_local_optimizer_runtime_budget_contract
+        .max_iteration_count
+        != competitive_probe.competitive_budget_profile.effective_iteration_budget
+    {
+        return Err(MineError::validation(
+            "Focused LP/BZ adapter competitive probe must keep the surfaced effective full-round-repair budget aligned with the explicit competitive runtime budget contract."
                 .to_owned(),
         ));
     }
@@ -671,6 +721,13 @@ mod tests {
                     requested_iteration_budget: 96,
                     effective_iteration_budget: 96,
                 },
+                competitive_local_optimizer_runtime_budget_contract:
+                    build_lp_bz_local_optimizer_runtime_budget_contract(
+                        "deterministic-adjacent-swap-plus-period-ejection-plus-precedence-chain-v8",
+                        96,
+                        7,
+                        "no-improving-local-move",
+                    ),
                 competitive_local_optimizer_strategy_label:
                     "deterministic-adjacent-swap-plus-period-ejection-plus-precedence-chain-v8"
                         .to_owned(),

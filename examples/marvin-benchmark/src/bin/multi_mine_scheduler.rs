@@ -6108,6 +6108,13 @@ mod tests {
                                 requested_iteration_budget: 32,
                                 effective_iteration_budget: 32,
                             },
+                        competitive_local_optimizer_runtime_budget_contract:
+                            super::lp_bz_runtime_budget::build_lp_bz_local_optimizer_runtime_budget_contract(
+                                "deterministic-adjacent-swap-plus-period-ejection-plus-precedence-chain-v8",
+                                32,
+                                3,
+                                "no-improving-local-move",
+                            ),
                         competitive_local_optimizer_strategy_label:
                             "deterministic-adjacent-swap-plus-period-ejection-plus-precedence-chain-v8"
                                 .to_owned(),
@@ -6268,6 +6275,13 @@ mod tests {
                                         requested_iteration_budget: 32,
                                         effective_iteration_budget: 32,
                                     },
+                                competitive_local_optimizer_runtime_budget_contract:
+                                    super::lp_bz_runtime_budget::build_lp_bz_local_optimizer_runtime_budget_contract(
+                                        "deterministic-adjacent-swap-plus-period-ejection-plus-precedence-chain-v8",
+                                        32,
+                                        3,
+                                        "no-improving-local-move",
+                                    ),
                                 competitive_local_optimizer_strategy_label:
                                     "deterministic-adjacent-swap-plus-period-ejection-plus-precedence-chain-v8"
                                         .to_owned(),

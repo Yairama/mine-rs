@@ -141,6 +141,59 @@ fn marvin_adapter_returns_compact_summary_and_real_focused_optimizer_limitation(
             .summary
             .lp_bz_round_repair
             .competitive_probe
+            .competitive_local_optimizer_runtime_budget_contract
+            .strategy_label,
+        result
+            .summary
+            .lp_bz_round_repair
+            .competitive_probe
+            .competitive_local_optimizer_strategy_label
+    );
+    assert_eq!(
+        result
+            .summary
+            .lp_bz_round_repair
+            .competitive_probe
+            .competitive_local_optimizer_runtime_budget_contract
+            .executed_iteration_count,
+        result
+            .summary
+            .lp_bz_round_repair
+            .competitive_probe
+            .competitive_local_optimizer_executed_iteration_count
+    );
+    assert_eq!(
+        result
+            .summary
+            .lp_bz_round_repair
+            .competitive_probe
+            .competitive_local_optimizer_runtime_budget_contract
+            .termination_reason,
+        result
+            .summary
+            .lp_bz_round_repair
+            .competitive_probe
+            .competitive_local_optimizer_termination_reason
+    );
+    assert_eq!(
+        result
+            .summary
+            .lp_bz_round_repair
+            .competitive_probe
+            .competitive_local_optimizer_runtime_budget_contract
+            .max_iteration_count,
+        result
+            .summary
+            .lp_bz_round_repair
+            .competitive_probe
+            .competitive_budget_profile
+            .effective_iteration_budget
+    );
+    assert_eq!(
+        result
+            .summary
+            .lp_bz_round_repair
+            .competitive_probe
             .competitive_local_search_discounted_target_score_proxy,
         result
             .summary
