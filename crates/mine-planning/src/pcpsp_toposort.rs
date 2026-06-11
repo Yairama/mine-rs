@@ -182,7 +182,7 @@ pub fn solve_pcpsp_with_toposort(
     ordering_scores: &BTreeMap<usize, f64>,
     options: &PcpspToposortOptions,
 ) -> Result<PcpspToposortSchedule, MineError> {
-    validate_problem(problem)?;
+    validate_pcpsp_problem(problem)?;
     if ordering_scores.is_empty() {
         return Err(MineError::invalid_parameter(
             "ordering_scores",
@@ -462,7 +462,7 @@ fn fits_in_period(current_usage: &[f64], block_usage: &[f64], limits: &[Option<f
     })
 }
 
-fn validate_problem(problem: &PcpspToposortProblem) -> Result<(), MineError> {
+pub(crate) fn validate_pcpsp_problem(problem: &PcpspToposortProblem) -> Result<(), MineError> {
     if problem.period_count == 0 {
         return Err(MineError::invalid_parameter(
             "period_count",

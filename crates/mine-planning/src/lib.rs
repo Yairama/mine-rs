@@ -4,6 +4,7 @@ mod benches;
 mod comparison;
 mod cpit_toposort;
 mod decomposed_scheduling;
+mod lagrangian_bound;
 mod long_term_schedule;
 mod max_closure;
 mod pcpsp_toposort;
@@ -34,6 +35,10 @@ pub use cpit_toposort::{
 pub use decomposed_scheduling::{
     DecomposedSchedulingArtifacts, DecomposedSchedulingConfig, DecomposedTemporalSolver,
     solve_decomposed_scheduling_problem,
+};
+pub use lagrangian_bound::{
+    LagrangianBoundOptions, LagrangianBoundResult, LagrangianIterationRecord,
+    compute_pcpsp_lagrangian_bound,
 };
 pub use long_term_schedule::{
     LongTermSchedule, LongTermScheduleEntry, LongTermScheduleMaterialFlowReport,

@@ -254,13 +254,15 @@ cargo run -p stochastic-planning
 cargo run --release -p marvin-benchmark --bin upit_runtime -- [--include-full]
 cargo run --release -p marvin-benchmark --bin cpit_toposort -- [--include-full]
 cargo run --release -p marvin-benchmark --bin pcpsp_toposort -- [--include-full]
+cargo run --release -p marvin-benchmark --bin pcpsp_bound -- [--include-full]
 ```
 
-Los tres últimos bins versionan reportes con telemetría de runtime por etapa (MR-215):
+Los cuatro últimos bins versionan reportes con telemetría de runtime por etapa (MR-215):
 
 - `upit_runtime` (MR-209) mide el solver exacto de UPIT (Dinic) sobre `marvin`, `mclaughlin-limit` y, con `--include-full`, sobre `mclaughlin` completo (2.14M bloques / 73.1M aristas), comparando el valor del pit contra el objetivo oficial MineLib. Reporte: `datasets/benchmarks/outputs/upit-runtime-report.json`. Estado actual: paridad exacta en las tres instancias.
 - `cpit_toposort` (MR-211) construye un candidato CPIT propio con la heurística TopoSort core (`solve_cpit_with_toposort`, Chicoisne et al. 2012, doi 10.1287/opre.1120.1072) ordenada por el tiempo esperado de extracción de la relajación LP staged (`*.LPcpit`), audita recursos y precedencias, y compara contra el best-known staged 2012. Reporte: `datasets/benchmarks/outputs/cpit-toposort-report.json`. Estado actual: la variante con retraso de estéril supera el incumbent staged en las tres instancias y queda a 0.2–3.7% del bound LP publicado; el bound LP propio sigue pendiente (MR-213).
 - `pcpsp_toposort` (MR-212) extiende la heurística al caso multi-destino PCPSP con decisión de destino durante la construcción (`solve_pcpsp_with_toposort`: valor descontado máximo entre pares destino/periodo factibles, de modo que el mineral espera capacidad de planta en vez de perder valor en botadero). Reporte: `datasets/benchmarks/outputs/pcpsp-toposort-report.json`. Estado actual: Marvin 829.5M (gap 6.37% vs 886.0M oficial, cumpliendo los dos primeros hitos de MR-212; el candidato exploratorio anterior quedaba en 664.2M / 25%), McLaughlin Limit 1,072.5M (gap 18.85% con ordering proxy `LPcpit` documentado).
+- `pcpsp_bound` (MR-213) calcula bounds superiores propios con la relajación Lagrangiana de capacidades del core (`compute_pcpsp_lagrangian_bound`): el subproblema interno es un max-closure exacto tiempo-expandido con el 100% de las precedencias en cada iteración (sin checkpoints parciales; Geoffrion 1974, Dagdelen & Johnson 1986), y deriva además candidatos TopoSort **self-contained** ordenados por la propia relajación, sin consumir las relajaciones LP staged de MineLib. Reporte: `datasets/benchmarks/outputs/pcpsp-bound-report.json`. Estado actual: bounds Marvin +17.2%/+15.2% y McLaughlin Limit +2.2%/+4.3% sobre los LP oficiales (gap dual restante por presupuesto finito de subgradiente, declarado en el artefacto); el candidato CPIT self-contained de Marvin (832.7M) supera al candidato con ordering LP staged.
 
 El estado consolidado de paridad contra la literatura vive en `docs/references/literature-parity.md` (MR-217) y se valida automáticamente contra los reportes JSON con `cargo test -p marvin-benchmark --test literature_parity`.
 

@@ -11,10 +11,36 @@
 use std::collections::BTreeMap;
 
 use mine_sdk::{
-    MineError, PcpspToposortProblem, PcpspToposortSchedule, PrecedenceGraph, PrecedenceNode,
+    CpitToposortProblem, MineError, PcpspToposortProblem, PcpspToposortSchedule, PrecedenceGraph,
+    PrecedenceNode,
 };
 
 use crate::marvin_support::{MarvinScheduleProblem, MarvinScheduleProblemKind};
+
+/// Reexpresa un problema CPIT mono-destino como `PcpspToposortProblem` con un
+/// solo destino, para reutilizar la misma ruta de bound/candidato multi-destino
+/// (CPIT es el caso particular `destination_count = 1`).
+#[allow(dead_code)] // usado por el bin `pcpsp_bound`; no por todos los bins que incluyen este módulo
+#[must_use]
+pub fn pcpsp_problem_from_cpit_toposort(problem: &CpitToposortProblem) -> PcpspToposortProblem {
+    PcpspToposortProblem {
+        period_count: problem.period_count,
+        discount_rate: problem.discount_rate,
+        destination_count: 1,
+        resource_count: problem.resource_count,
+        block_values: problem
+            .block_values
+            .iter()
+            .map(|(linear, value)| (*linear, vec![*value]))
+            .collect(),
+        block_resource_usage: problem
+            .block_resource_usage
+            .iter()
+            .map(|(linear, usage)| (*linear, vec![usage.clone()]))
+            .collect(),
+        period_resource_upper_limits: problem.period_resource_upper_limits.clone(),
+    }
+}
 
 /// Convierte el contrato MineLib PCPSP al problema del solver core.
 ///

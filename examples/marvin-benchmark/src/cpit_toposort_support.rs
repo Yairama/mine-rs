@@ -26,6 +26,7 @@ pub const LP_SUPPORT_MINIMUM_FRACTION: f64 = 1.0e-9;
 /// Para cada bloque calcula `sum(periodo * fraccion) / sum(fraccion)` sobre las
 /// asignaciones fraccionales de la relajación; los bloques sin soporte LP
 /// quedan fuera (no se programan).
+#[allow(dead_code)] // usado por bins toposort; no por todos los bins que incluyen este módulo
 #[must_use]
 pub fn build_expected_period_scores(
     assignments: &[MarvinScheduleAssignment],

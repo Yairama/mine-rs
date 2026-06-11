@@ -203,6 +203,81 @@ fn marvin_pcpsp_candidate_meets_mr212_milestones() {
     );
 }
 
+/// Los bounds Lagrangianos propios y el candidato self-contained citados en la
+/// tabla deben coincidir con `pcpsp-bound-report.json` (MR-213).
+#[test]
+fn parity_table_matches_pcpsp_bound_report() {
+    let report = read_json("datasets/benchmarks/outputs/pcpsp-bound-report.json");
+    let doc = read_parity_doc();
+
+    let formulations = report["formulations"]
+        .as_array()
+        .expect("report should contain formulations");
+    assert!(
+        !formulations.is_empty(),
+        "pcpsp bound report should not be empty"
+    );
+
+    for formulation in formulations {
+        let run_id = formulation["run_id"].as_str().expect("run_id");
+
+        // El bound debe declarar cobertura completa de precedencias y quedar
+        // por encima del LP oficial (validez metodológica).
+        let coverage = formulation["precedence_coverage_completeness"]
+            .as_str()
+            .expect("coverage field");
+        assert!(
+            coverage.starts_with("complete"),
+            "run `{run_id}` lost full precedence coverage: {coverage}"
+        );
+        let bound = formulation["best_bound"].as_f64().expect("best_bound");
+        let official_lp = formulation["official_lp_objective"]
+            .as_f64()
+            .expect("official_lp_objective");
+        assert!(
+            bound >= official_lp - 1.0,
+            "run `{run_id}` bound {bound} fell below the official LP {official_lp}; \
+             a valid relaxation bound cannot do that"
+        );
+        let formatted_bound = format!("`{bound:.3}`");
+        assert!(
+            doc.contains(&formatted_bound),
+            "literature-parity.md is missing own bound {formatted_bound} for run `{run_id}`"
+        );
+
+        let candidate = &formulation["self_contained_candidate"];
+        assert_eq!(
+            candidate["audit_objective_consistent"], true,
+            "run `{run_id}` self-contained candidate failed objective audit"
+        );
+        assert_eq!(
+            candidate["precedence_feasibility_verified"], true,
+            "run `{run_id}` self-contained candidate failed precedence verification"
+        );
+        let max_excess = candidate["audited_max_resource_excess"]
+            .as_f64()
+            .expect("audited_max_resource_excess");
+        assert!(
+            max_excess <= 1.0e-6,
+            "run `{run_id}` self-contained candidate exceeds resource limits by {max_excess}"
+        );
+    }
+
+    // El mejor candidato CPIT de Marvin citado en la tabla es el self-contained.
+    let marvin_cpit = formulations
+        .iter()
+        .find(|formulation| formulation["run_id"] == "marvin-cpit")
+        .expect("marvin-cpit run should be present");
+    let candidate_objective = marvin_cpit["self_contained_candidate"]["discounted_objective"]
+        .as_f64()
+        .expect("discounted_objective");
+    let formatted_candidate = format!("`{candidate_objective:.3}`");
+    assert!(
+        doc.contains(&formatted_candidate),
+        "literature-parity.md is missing self-contained CPIT candidate {formatted_candidate}"
+    );
+}
+
 /// La tabla debe declarar las instancias MineLib aún no staged (MR-208).
 #[test]
 fn parity_table_declares_missing_minelib_instances() {
