@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 use mine_planning::{
     LagrangianBoundOptions, PcpspToposortProblem, PrecedenceEdge, PrecedenceGraph, PrecedenceNode,
-    compute_pcpsp_lagrangian_bound,
+    build_max_closure_graph, compute_pcpsp_lagrangian_bound, solve_upl_exact,
 };
 
 fn block_edge(pred: usize, succ: usize) -> PrecedenceEdge {
@@ -169,6 +169,109 @@ fn bound_is_deterministic() {
         compute_pcpsp_lagrangian_bound(&problem, &graph, &options).expect("bound should compute");
 
     assert_eq!(first, second);
+}
+
+/// Diferencial contra el solver UPL genérico: con `π = 0` y descuento 0 el
+/// bound de la iteración 0 colapsa al valor UPIT del problema estático (todo
+/// bloque rentable se extrae en el periodo 0 sin penalización temporal).
+#[test]
+fn iteration_zero_matches_static_upl_when_undiscounted() {
+    let weights = BTreeMap::from([
+        (0usize, 10.0_f64),
+        (1usize, -3.0),
+        (2usize, 7.0),
+        (3usize, -20.0),
+    ]);
+    let graph = PrecedenceGraph::new(vec![block_edge(1, 0), block_edge(3, 2)])
+        .expect("graph should be valid");
+
+    let closure_graph =
+        build_max_closure_graph(&weights, &graph).expect("closure graph should build");
+    let upl = solve_upl_exact(&closure_graph).expect("upl should solve");
+
+    let problem = PcpspToposortProblem {
+        period_count: 3,
+        discount_rate: 0.0,
+        destination_count: 1,
+        resource_count: 1,
+        block_values: weights
+            .iter()
+            .map(|(linear, weight)| (*linear, vec![*weight]))
+            .collect(),
+        block_resource_usage: weights
+            .keys()
+            .map(|linear| (*linear, vec![vec![1.0]]))
+            .collect(),
+        period_resource_upper_limits: vec![vec![Some(100.0)]; 3],
+    };
+    let result = compute_pcpsp_lagrangian_bound(
+        &problem,
+        &graph,
+        &LagrangianBoundOptions {
+            max_iterations: 1,
+            ..LagrangianBoundOptions::default()
+        },
+    )
+    .expect("bound should compute");
+
+    assert!(
+        (result.iteration_records[0].bound - upl.pit_value).abs() < 1.0e-9,
+        "iteration-0 bound {} must equal the static UPL value {}",
+        result.iteration_records[0].bound,
+        upl.pit_value
+    );
+}
+
+/// Warm-start: reutilizar `best_multipliers` debe partir al menos tan abajo
+/// como el mejor bound de la corrida previa (la primera iteración evalúa
+/// exactamente esos multiplicadores).
+#[test]
+fn warm_start_resumes_from_previous_best_multipliers() {
+    let (problem, graph, _) = enumerable_problem();
+
+    let cold = compute_pcpsp_lagrangian_bound(
+        &problem,
+        &graph,
+        &LagrangianBoundOptions {
+            max_iterations: 20,
+            lower_bound_hint: Some(18.0 + (-2.0 + 6.0) / 1.1),
+            ..LagrangianBoundOptions::default()
+        },
+    )
+    .expect("cold run should compute");
+
+    let warm = compute_pcpsp_lagrangian_bound(
+        &problem,
+        &graph,
+        &LagrangianBoundOptions {
+            max_iterations: 1,
+            initial_multipliers: Some(cold.best_multipliers.clone()),
+            ..LagrangianBoundOptions::default()
+        },
+    )
+    .expect("warm run should compute");
+
+    assert!(
+        warm.iteration_records[0].bound <= cold.best_bound + 1.0e-9,
+        "warm-start first bound {} should not exceed the previous best {}",
+        warm.iteration_records[0].bound,
+        cold.best_bound
+    );
+}
+
+#[test]
+fn rejects_mismatched_warm_start_length() {
+    let (problem, graph, _) = enumerable_problem();
+    let error = compute_pcpsp_lagrangian_bound(
+        &problem,
+        &graph,
+        &LagrangianBoundOptions {
+            initial_multipliers: Some(vec![0.0; 99]),
+            ..LagrangianBoundOptions::default()
+        },
+    )
+    .expect_err("mismatched warm start should fail");
+    assert!(error.to_string().contains("initial_multipliers"));
 }
 
 #[test]

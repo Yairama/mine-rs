@@ -44,14 +44,16 @@ use cpit_toposort_support::build_expected_period_scores;
 use marvin_support::{
     MarvinScheduleAssignment, MarvinScheduleProblem, MarvinScheduleProblemKind,
     MarvinScheduleSolution, read_minelib_lp_cpit_solution, read_minelib_lp_pcpsp_solution,
-    read_minelib_pcpsp_problem, read_minelib_precedence_graph, summarize_minelib_schedule_solution,
+    read_minelib_pcpsp_problem, read_minelib_pcpsp_solution, read_minelib_precedence_graph,
+    summarize_minelib_schedule_solution,
 };
 use mine_sdk::{
     MineError, PcpspToposortOptions, PcpspToposortSchedule, PrecedenceGraph,
     solve_pcpsp_with_toposort,
 };
 use pcpsp_toposort_support::{
-    build_pcpsp_toposort_problem_from_minelib, verify_pcpsp_schedule_precedence,
+    TemporalAlignmentSummary, build_pcpsp_toposort_problem_from_minelib,
+    summarize_temporal_alignment, verify_pcpsp_schedule_precedence,
 };
 use serde::Serialize;
 
@@ -77,6 +79,7 @@ struct DatasetConfig {
     blocks_file: &'static str,
     precedence_file: &'static str,
     pcpsp_problem_file: &'static str,
+    pcpsp_solution_file: &'static str,
     ordering_solution_file: &'static str,
     ordering_source: OrderingSource,
     ordering_note: &'static str,
@@ -92,6 +95,7 @@ const DATASETS: &[DatasetConfig] = &[
         blocks_file: "marvin.blocks",
         precedence_file: "marvin.prec",
         pcpsp_problem_file: "marvin.pcpsp",
+        pcpsp_solution_file: "marvin_pcpsp_gmunoz120723.sol",
         ordering_solution_file: "marvin.LPpcpsp",
         ordering_source: OrderingSource::LpPcpsp,
         ordering_note: "expected extraction period from the staged PCPSP LP relaxation",
@@ -105,6 +109,7 @@ const DATASETS: &[DatasetConfig] = &[
         blocks_file: "mclaughlin_limit.blocks",
         precedence_file: "mclaughlin_limit.prec",
         pcpsp_problem_file: "mclaughlin_limit.pcpsp",
+        pcpsp_solution_file: "mclaughlin_limit_pcpsp_gmunoz120723.sol",
         ordering_solution_file: "mclaughlin_limit.LPcpit",
         ordering_source: OrderingSource::LpCpit,
         ordering_note: "expected extraction period from the staged CPIT LP relaxation, used as a \
@@ -119,6 +124,7 @@ const DATASETS: &[DatasetConfig] = &[
         blocks_file: "mclaughlin.blocks",
         precedence_file: "mclaughlin.prec",
         pcpsp_problem_file: "mclaughlin.pcpsp",
+        pcpsp_solution_file: "mclaughlin_pcpsp_gmunoz120723.sol",
         ordering_solution_file: "mclaughlin.LPcpit",
         ordering_source: OrderingSource::LpCpit,
         ordering_note: "expected extraction period from the staged CPIT LP relaxation, used as a \
@@ -165,6 +171,9 @@ struct DatasetPcpspToposortRecord {
     official_lp_pcpsp_objective: f64,
     official_source: String,
     candidates: Vec<CandidateRecord>,
+    /// Alineación temporal/ruteo del candidato `toposort-delayed-waste`
+    /// contra la solución de referencia PCPSP (insumo del gate MR-206).
+    delayed_candidate_temporal_alignment: TemporalAlignmentSummary,
     runtime_telemetry: RuntimeTelemetry,
 }
 
@@ -321,6 +330,12 @@ fn run_dataset(
     )?;
     timer.record_stage("audit-candidates");
 
+    let reference_solution =
+        read_minelib_pcpsp_solution(references_dir.join(config.pcpsp_solution_file), &model)?;
+    let delayed_candidate_temporal_alignment =
+        summarize_temporal_alignment(&delayed_schedule, &reference_solution.assignments);
+    timer.record_stage("temporal-alignment-vs-reference");
+
     Ok(DatasetPcpspToposortRecord {
         dataset_id: config.dataset_id.to_owned(),
         method:
@@ -340,6 +355,7 @@ fn run_dataset(
         official_lp_pcpsp_objective: config.official_lp_pcpsp_objective,
         official_source: config.official_source.to_owned(),
         candidates: vec![baseline_candidate, delayed_candidate],
+        delayed_candidate_temporal_alignment,
         runtime_telemetry: timer.finish(),
     })
 }

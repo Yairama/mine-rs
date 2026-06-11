@@ -102,7 +102,7 @@ const FORMULATIONS: &[FormulationConfig] = &[
         official_lp_objective: 863_916_131.0,
         official_incumbent_objective: 820_726_048.0,
         lower_bound_hint: 831_910_167.0, // candidato MR-211 (cpit-toposort-report.json)
-        iterations: 60,
+        iterations: 120,
         official_source: "datasets/benchmarks/marvin/marving-info.txt",
         heavy: false,
     },
@@ -116,7 +116,7 @@ const FORMULATIONS: &[FormulationConfig] = &[
         official_lp_objective: 911_704_665.0,
         official_incumbent_objective: 885_968_070.0,
         lower_bound_hint: 829_532_040.0, // candidato MR-212 (pcpsp-toposort-report.json)
-        iterations: 60,
+        iterations: 120,
         official_source: "datasets/benchmarks/marvin/marving-info.txt",
         heavy: false,
     },
@@ -130,7 +130,7 @@ const FORMULATIONS: &[FormulationConfig] = &[
         official_lp_objective: 1_078_979_501.0,
         official_incumbent_objective: 1_073_327_197.0,
         lower_bound_hint: 1_076_575_736.0, // candidato MR-211
-        iterations: 20,
+        iterations: 12,
         official_source: "datasets/benchmarks/mclaughlin-limit/mclaughlin-limit-info.txt",
         heavy: true,
     },
@@ -144,7 +144,7 @@ const FORMULATIONS: &[FormulationConfig] = &[
         official_lp_objective: 1_324_829_727.0,
         official_incumbent_objective: 1_321_662_551.0,
         lower_bound_hint: 1_072_520_168.0, // candidato MR-212
-        iterations: 20,
+        iterations: 12,
         official_source: "datasets/benchmarks/mclaughlin-limit/mclaughlin-limit-info.txt",
         heavy: true,
     },

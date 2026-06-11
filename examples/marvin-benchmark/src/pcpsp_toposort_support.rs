@@ -8,14 +8,135 @@
 //! Referencias: Chicoisne et al. (2012), doi 10.1287/opre.1120.1072 ([R35]);
 //! Espinoza et al. (2013), doi 10.1007/s10479-012-1258-3 ([R29]).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use mine_sdk::{
     CpitToposortProblem, MineError, PcpspToposortProblem, PcpspToposortSchedule, PrecedenceGraph,
     PrecedenceNode,
 };
+use serde::Serialize;
 
-use crate::marvin_support::{MarvinScheduleProblem, MarvinScheduleProblemKind};
+use crate::marvin_support::{
+    MarvinScheduleAssignment, MarvinScheduleProblem, MarvinScheduleProblemKind,
+};
+
+/// Métricas de alineación temporal y de ruteo de un candidato contra la
+/// solución de referencia MineLib (insumo del gate de promoción MR-206).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TemporalAlignmentSummary {
+    /// Bloques presentes en candidato y referencia.
+    pub shared_block_count: usize,
+    /// Bloques con |delta de periodo| < 0.5 respecto al periodo esperado de la
+    /// referencia (media ponderada por fracciones).
+    pub exact_period_match_count: usize,
+    /// Bloques extraídos antes que en la referencia (delta < -0.5).
+    pub earlier_than_reference_count: usize,
+    /// Bloques extraídos después que en la referencia (delta > 0.5).
+    pub later_than_reference_count: usize,
+    /// Media de |delta de periodo| sobre los bloques compartidos.
+    pub mean_absolute_period_delta: f64,
+    /// Máximo |delta de periodo| observado.
+    pub max_absolute_period_delta: f64,
+    /// Jaccard de membresía `(bloque, periodo, destino)` usando la asignación
+    /// de mayor fracción de la referencia.
+    pub period_destination_jaccard: f64,
+}
+
+/// Compara el schedule candidato contra las asignaciones de la solución de
+/// referencia (posiblemente fraccionales) y resume drift temporal y ruteo.
+#[allow(dead_code)] // usado por el bin `pcpsp_toposort`; no por todos los bins que incluyen este módulo
+#[must_use]
+pub fn summarize_temporal_alignment(
+    candidate: &PcpspToposortSchedule,
+    reference_assignments: &[MarvinScheduleAssignment],
+) -> TemporalAlignmentSummary {
+    // Periodo esperado (media ponderada por fracción) y celda (periodo,
+    // destino) de mayor fracción por bloque de la referencia.
+    let mut weighted_period_sum: BTreeMap<usize, f64> = BTreeMap::new();
+    let mut fraction_sum: BTreeMap<usize, f64> = BTreeMap::new();
+    let mut argmax_cell: BTreeMap<usize, (f64, usize, usize)> = BTreeMap::new();
+    for assignment in reference_assignments {
+        *weighted_period_sum
+            .entry(assignment.linear_index)
+            .or_insert(0.0) += assignment.fraction * assignment.period_index as f64;
+        *fraction_sum.entry(assignment.linear_index).or_insert(0.0) += assignment.fraction;
+        let entry = argmax_cell
+            .entry(assignment.linear_index)
+            .or_insert((f64::NEG_INFINITY, 0, 0));
+        if assignment.fraction > entry.0 {
+            *entry = (
+                assignment.fraction,
+                assignment.period_index,
+                assignment.destination_index,
+            );
+        }
+    }
+
+    let mut shared_block_count = 0usize;
+    let mut exact_period_match_count = 0usize;
+    let mut earlier_than_reference_count = 0usize;
+    let mut later_than_reference_count = 0usize;
+    let mut absolute_delta_sum = 0.0_f64;
+    let mut max_absolute_period_delta = 0.0_f64;
+    for assignment in &candidate.assignments {
+        let Some(&total_fraction) = fraction_sum.get(&assignment.linear_index) else {
+            continue;
+        };
+        if total_fraction <= 1.0e-12 {
+            continue;
+        }
+        shared_block_count += 1;
+        let expected_period = weighted_period_sum[&assignment.linear_index] / total_fraction;
+        let delta = assignment.period_index as f64 - expected_period;
+        let absolute_delta = delta.abs();
+        absolute_delta_sum += absolute_delta;
+        max_absolute_period_delta = max_absolute_period_delta.max(absolute_delta);
+        if absolute_delta < 0.5 {
+            exact_period_match_count += 1;
+        } else if delta < 0.0 {
+            earlier_than_reference_count += 1;
+        } else {
+            later_than_reference_count += 1;
+        }
+    }
+
+    let candidate_cells: BTreeSet<(usize, usize, usize)> = candidate
+        .assignments
+        .iter()
+        .map(|assignment| {
+            (
+                assignment.linear_index,
+                assignment.period_index,
+                assignment.destination_index,
+            )
+        })
+        .collect();
+    let reference_cells: BTreeSet<(usize, usize, usize)> = argmax_cell
+        .iter()
+        .map(|(linear, (_, period, destination))| (*linear, *period, *destination))
+        .collect();
+    let intersection = candidate_cells.intersection(&reference_cells).count();
+    let union = candidate_cells.union(&reference_cells).count();
+    let period_destination_jaccard = if union == 0 {
+        0.0
+    } else {
+        intersection as f64 / union as f64
+    };
+
+    TemporalAlignmentSummary {
+        shared_block_count,
+        exact_period_match_count,
+        earlier_than_reference_count,
+        later_than_reference_count,
+        mean_absolute_period_delta: if shared_block_count == 0 {
+            0.0
+        } else {
+            absolute_delta_sum / shared_block_count as f64
+        },
+        max_absolute_period_delta,
+        period_destination_jaccard,
+    }
+}
 
 /// Reexpresa un problema CPIT mono-destino como `PcpspToposortProblem` con un
 /// solo destino, para reutilizar la misma ruta de bound/candidato multi-destino
