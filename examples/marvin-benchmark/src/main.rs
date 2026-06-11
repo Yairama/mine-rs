@@ -38,6 +38,10 @@ use lp_bz_lp_kernel::{
     LpBzLpSolveStatus, LpBzPrecedenceCoverageCompleteness, LpBzPrecedenceEnforcementStrategy,
     LpBzPrecedenceSolveDiagnostics, build_lp_bz_lp_kernel_artifact, solve_lp_bz_lp_kernel_artifact,
 };
+use lp_bz_runtime_budget::{
+    LpBzLocalOptimizerRuntimeBudgetContract, build_lp_bz_local_optimizer_runtime_budget_contract,
+    validate_lp_bz_local_optimizer_runtime_budget_contract,
+};
 use lp_bz_rounder::{
     build_target_period_seeded_schedule_from_lp_round_repair_v6,
     build_target_period_seeded_schedule_from_lp_round_repair_v6_focused,
@@ -736,6 +740,7 @@ struct LpBzPeriodBandRefinementDiagnostics {
 #[derive(Debug, Serialize)]
 struct LpBzRounderV6LocalOptimizerDiagnostics {
     rounder_strategy_label: String,
+    local_optimizer_runtime_budget_contract: LpBzLocalOptimizerRuntimeBudgetContract,
     local_optimizer_strategy_label: String,
     local_optimizer_budget_mode_label: String,
     local_optimizer_target_unit_count: usize,
@@ -2962,6 +2967,9 @@ fn build_skipped_focused_lp_bz_lp_solve_artifact(
 fn validate_focused_mr187_refresh_output(
     output: &FocusedMr187RefreshOutput,
 ) -> Result<(), MineError> {
+    validate_lp_bz_rounder_v6_local_optimizer_diagnostics(
+        &output.lp_bz_rounder_v6_local_optimizer_diagnostics,
+    )?;
     if output.lp_bz_temporal_routing_promotion_gate
         != output
             .lp_bz_integer_candidate_artifact
@@ -3443,6 +3451,42 @@ fn validate_mr187_refresh_contract(
     {
         return Err(MineError::validation(
             "Focused MR-187 refresh promotion gate must keep the current LP/BZ family non-promotable while temporal/routing comparability remains exploratory."
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_lp_bz_rounder_v6_local_optimizer_diagnostics(
+    diagnostics: &LpBzRounderV6LocalOptimizerDiagnostics,
+) -> Result<(), MineError> {
+    validate_lp_bz_local_optimizer_runtime_budget_contract(
+        &diagnostics.local_optimizer_runtime_budget_contract,
+    )
+    .map_err(MineError::validation)?;
+    if diagnostics.local_optimizer_runtime_budget_contract.strategy_label
+        != diagnostics.local_optimizer_strategy_label
+        || diagnostics
+            .local_optimizer_runtime_budget_contract
+            .executed_iteration_count
+            != diagnostics.local_optimizer_executed_iteration_count
+        || diagnostics
+            .local_optimizer_runtime_budget_contract
+            .termination_reason
+            != diagnostics.local_optimizer_termination_reason
+    {
+        return Err(MineError::validation(
+            "Focused MR-187 rounder diagnostics must keep strategy, iterations and termination reason aligned with the explicit runtime budget contract."
+                .to_owned(),
+        ));
+    }
+    if diagnostics.local_optimizer_runtime_budget_contract.max_iteration_count
+        != diagnostics.local_optimizer_max_iteration_count
+        || diagnostics.local_optimizer_runtime_budget_contract.max_iteration_count
+            != diagnostics.local_optimizer_effective_iteration_budget
+    {
+        return Err(MineError::validation(
+            "Focused MR-187 rounder diagnostics must keep the surfaced max/effective iteration budget aligned with the explicit runtime budget contract."
                 .to_owned(),
         ));
     }
@@ -8729,6 +8773,25 @@ fn build_lp_bz_rounder_v6_local_optimizer_diagnostics(
 ) -> LpBzRounderV6LocalOptimizerDiagnostics {
     LpBzRounderV6LocalOptimizerDiagnostics {
         rounder_strategy_label: "lp-bz-rounder-v6-topological-round-repair".to_owned(),
+        local_optimizer_runtime_budget_contract:
+            build_lp_bz_local_optimizer_runtime_budget_contract(
+                &artifacts
+                    .unit_round_repair
+                    .local_optimizer_diagnostics
+                    .strategy_label,
+                artifacts
+                    .unit_round_repair
+                    .local_optimizer_diagnostics
+                    .max_iteration_count,
+                artifacts
+                    .unit_round_repair
+                    .local_optimizer_diagnostics
+                    .executed_iteration_count,
+                &artifacts
+                    .unit_round_repair
+                    .local_optimizer_diagnostics
+                    .termination_reason,
+            ),
         local_optimizer_strategy_label: artifacts
             .unit_round_repair
             .local_optimizer_diagnostics
@@ -8897,6 +8960,7 @@ mod tests {
         split_phase_plan_by_representative_period_bands,
         split_phase_plan_by_representative_period_bands_with_link_policy,
         split_phase_plan_by_representative_period_quantiles,
+        validate_lp_bz_rounder_v6_local_optimizer_diagnostics,
         validate_lp_bz_period_band_refinement_diagnostics, validate_mr187_refresh_contract,
         validate_pushback_bench_localized_cut_calibration_sweep,
         validate_pushback_bench_localized_cut_refinement_diagnostics, write_pretty_json,
@@ -9629,6 +9693,53 @@ mod tests {
         assert!(
             error.to_string().contains("dominant gap driver"),
             "validation error should explain the ready-frontier gap-driver inconsistency"
+        );
+    }
+
+    #[test]
+    fn focused_rounder_diagnostics_require_runtime_contract_alignment() {
+        let mut diagnostics = super::LpBzRounderV6LocalOptimizerDiagnostics {
+            rounder_strategy_label: "lp-bz-rounder-v6-topological-round-repair".to_owned(),
+            local_optimizer_runtime_budget_contract:
+                crate::lp_bz_runtime_budget::build_lp_bz_local_optimizer_runtime_budget_contract(
+                    "deterministic-adjacent-swap-plus-period-ejection-plus-precedence-chain-v8",
+                    12,
+                    2,
+                    "no-improving-local-move",
+                ),
+            local_optimizer_strategy_label:
+                "deterministic-adjacent-swap-plus-period-ejection-plus-precedence-chain-v8"
+                    .to_owned(),
+            local_optimizer_budget_mode_label: "focused-refresh-budgeted".to_owned(),
+            local_optimizer_target_unit_count: 4,
+            local_optimizer_horizon_period_count: 4,
+            local_optimizer_full_iteration_budget: 32,
+            local_optimizer_requested_iteration_budget: 12,
+            local_optimizer_effective_iteration_budget: 12,
+            local_optimizer_max_iteration_count: 12,
+            local_optimizer_executed_iteration_count: 2,
+            local_optimizer_improving_move_count: 1,
+            local_optimizer_termination_reason: "no-improving-local-move".to_owned(),
+            local_optimizer_residual_move_kind_label: "none".to_owned(),
+            local_optimizer_residual_discounted_gain: 0.0,
+            repaired_phase_target_count: 0,
+            repaired_unit_target_count: 0,
+            horizon_clamp_count: 0,
+            phase_target_count: 4,
+            unit_target_count: 4,
+        };
+
+        validate_lp_bz_rounder_v6_local_optimizer_diagnostics(&diagnostics)
+            .expect("aligned focused rounder runtime contract should validate");
+
+        diagnostics.local_optimizer_executed_iteration_count = 3;
+        let error = validate_lp_bz_rounder_v6_local_optimizer_diagnostics(&diagnostics)
+            .expect_err("drifted executed iteration count should be rejected");
+        assert!(
+            error
+                .to_string()
+                .contains("strategy, iterations and termination reason aligned"),
+            "validation error should explain the runtime-contract drift"
         );
     }
 
