@@ -2857,7 +2857,7 @@ fn build_mr187_refresh_limitations() -> Vec<String> {
         ),
         "El `lp_bz_lp_solve_artifact` del modo focalizado queda marcado explícitamente como `skipped` para mantener el refresh operativo en este entorno; por eso el gap efectivo usa solo el `native-resource-envelope` y no el solve nativo del kernel.".to_owned(),
         "El campo `candidate_vs_ready_frontier_objective_gap` se fija en `0.0` en el modo focalizado porque la baseline `ready frontier` no se reejecuta; el refresh queda orientado a bound/kernel/candidato LP/BZ y no a la comparación completa contra todas las baselines.".to_owned(),
-        "El `lp_bz_integer_candidate_artifact` del modo focalizado conserva el round/repair topológico v6 y el schedule seeded, pero omite el optimizador local v8 más costoso; los diagnósticos lo marcan explícitamente como `skipped-focused-refresh-runtime`, así que el candidato puede quedar más conservador que en `full`.".to_owned(),
+        "El `lp_bz_integer_candidate_artifact` del modo focalizado conserva el round/repair topológico v6 y el schedule seeded, pero ejecuta el optimizador local v8 bajo el perfil explícito `focused-refresh-budgeted`; por eso el candidato sigue siendo más acotado que la ruta `full-round-repair` usada por el `competitive_probe` benchmark-side y puede quedar más conservador que el reporte `full`.".to_owned(),
         format!(
             "El sweep v9 experimental `{LP_BZ_V9_UNIT_GRANULARITY_LABEL}` del refresh focalizado todavía no reemplaza la ruta base v8 con contrato `{}`: solo agrega evidencia side-by-side por ancho de banda LP sobre granularidad, round/repair y gap antes de decidir una promoción.",
             MR187_PROMOTED_LOCAL_FRONT_PROGRESSION_PROFILE.label,
@@ -2969,6 +2969,16 @@ fn validate_focused_mr187_refresh_output(
 ) -> Result<(), MineError> {
     validate_lp_bz_rounder_v6_local_optimizer_diagnostics(
         &output.lp_bz_rounder_v6_local_optimizer_diagnostics,
+    )?;
+    validate_lp_bz_rounder_v6_local_optimizer_diagnostics(
+        &output
+            .lp_bz_pushback_bench_localized_cut_experiment
+            .lp_bz_rounder_v6_local_optimizer_diagnostics,
+    )?;
+    validate_lp_bz_rounder_v6_local_optimizer_diagnostics(
+        &output
+            .lp_bz_v9_local_front_band_experiment
+            .lp_bz_rounder_v6_local_optimizer_diagnostics,
     )?;
     if output.lp_bz_temporal_routing_promotion_gate
         != output
