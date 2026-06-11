@@ -175,6 +175,9 @@ const MARVIN_SIDECAR_RUNTIME_CONTRACT_FIELD_SUFFIXES: &[&str] = &[
     "summary.lp_bz_round_repair.target_score_decomposition.local_search_score_delta_vs_round_proxy",
     "summary.lp_bz_round_repair.competitive_probe.improvement_status",
     "summary.lp_bz_round_repair.competitive_probe.competitive_budget_profile.mode_label",
+    "summary.lp_bz_round_repair.competitive_probe.competitive_local_optimizer_runtime_budget_contract.execution_state",
+    "summary.lp_bz_round_repair.competitive_probe.competitive_local_optimizer_runtime_budget_contract.budget_hit",
+    "summary.lp_bz_round_repair.competitive_probe.competitive_local_optimizer_runtime_budget_contract.summary",
     "summary.lp_bz_round_repair.competitive_probe.competitive_local_optimizer_termination_reason",
     "summary.lp_bz_round_repair.competitive_probe.competitive_local_optimizer_executed_iteration_count",
     "summary.lp_bz_round_repair.competitive_probe.competitive_local_search_discounted_target_score_proxy",
@@ -396,9 +399,9 @@ fn build_lp_bz_competitive_empirical_driver_assessment(
         .lp_bz_round_repair
         .local_optimizer_runtime_budget_contract;
     let competitive_probe = &adapter_summary.lp_bz_round_repair.competitive_probe;
-    let competitive_budget_hit = lp_bz_runtime_budget::local_optimizer_runtime_budget_was_hit(
-        &competitive_probe.competitive_local_optimizer_termination_reason,
-    );
+    let competitive_runtime_budget =
+        &competitive_probe.competitive_local_optimizer_runtime_budget_contract;
+    let competitive_budget_hit = competitive_runtime_budget.budget_hit;
     let budget_depletion_blocking = focused_runtime_budget.budget_hit || competitive_budget_hit;
     let focused_budget_usage = format!(
         "{}/{} ({:.2}%)",
@@ -411,31 +414,27 @@ fn build_lp_bz_competitive_empirical_driver_assessment(
     );
     let competitive_budget_usage = format!(
         "{}/{} ({:.2}%)",
-        competitive_probe.competitive_local_optimizer_executed_iteration_count,
-        competitive_probe
-            .competitive_budget_profile
-            .effective_iteration_budget,
+        competitive_runtime_budget.executed_iteration_count,
+        competitive_runtime_budget.max_iteration_count,
         lp_bz_iteration_budget_usage_percent(
-            competitive_probe.competitive_local_optimizer_executed_iteration_count,
-            competitive_probe
-                .competitive_budget_profile
-                .effective_iteration_budget,
+            competitive_runtime_budget.executed_iteration_count,
+            competitive_runtime_budget.max_iteration_count,
         ),
     );
     let budget_summary = if budget_depletion_blocking {
         format!(
-            "Budget depletion is observed: focused local search is `{}` after {}, and competitive probe stopped with `{}` after {}.",
+            "Budget depletion is observed: focused local search is `{}` after {}, and competitive probe is `{}` after {}.",
             focused_runtime_budget.execution_state,
             focused_budget_usage,
-            competitive_probe.competitive_local_optimizer_termination_reason,
+            competitive_runtime_budget.execution_state,
             competitive_budget_usage,
         )
     } else {
         format!(
-            "Budget depletion is not observed: focused local search is `{}` after {}, and competitive probe stopped with `{}` after {}.",
+            "Budget depletion is not observed: focused local search is `{}` after {}, and competitive probe is `{}` after {}.",
             focused_runtime_budget.execution_state,
             focused_budget_usage,
-            competitive_probe.competitive_local_optimizer_termination_reason,
+            competitive_runtime_budget.execution_state,
             competitive_budget_usage,
         )
     };
@@ -512,6 +511,12 @@ fn build_lp_bz_competitive_empirical_driver_assessment(
                 "lp_bz_baseline.summary.lp_bz_round_repair.local_optimizer_runtime_budget_contract.summary"
                     .to_owned(),
                 "lp_bz_baseline.summary.lp_bz_round_repair.competitive_probe.competitive_budget_profile.mode_label"
+                    .to_owned(),
+                "lp_bz_baseline.summary.lp_bz_round_repair.competitive_probe.competitive_local_optimizer_runtime_budget_contract.execution_state"
+                    .to_owned(),
+                "lp_bz_baseline.summary.lp_bz_round_repair.competitive_probe.competitive_local_optimizer_runtime_budget_contract.budget_hit"
+                    .to_owned(),
+                "lp_bz_baseline.summary.lp_bz_round_repair.competitive_probe.competitive_local_optimizer_runtime_budget_contract.summary"
                     .to_owned(),
                 "lp_bz_baseline.summary.lp_bz_round_repair.competitive_probe.competitive_local_optimizer_termination_reason"
                     .to_owned(),
@@ -606,6 +611,8 @@ fn build_lp_bz_budget_coverage_experiment_summary(
         .lp_bz_round_repair
         .local_optimizer_runtime_budget_contract;
     let competitive_probe = &adapter_summary.lp_bz_round_repair.competitive_probe;
+    let competitive_runtime_budget =
+        &competitive_probe.competitive_local_optimizer_runtime_budget_contract;
     let competitive_probe_discounted_objective = focused_candidate_discounted_objective
         + competitive_probe.local_search_score_delta_vs_focused_proxy;
     let residual_ready_frontier_gap_after_competitive_probe_proxy =
@@ -621,15 +628,11 @@ fn build_lp_bz_budget_coverage_experiment_summary(
     );
     let competitive_budget_usage = format!(
         "{}/{} ({:.2}%)",
-        competitive_probe.competitive_local_optimizer_executed_iteration_count,
-        competitive_probe
-            .competitive_budget_profile
-            .effective_iteration_budget,
+        competitive_runtime_budget.executed_iteration_count,
+        competitive_runtime_budget.max_iteration_count,
         lp_bz_iteration_budget_usage_percent(
-            competitive_probe.competitive_local_optimizer_executed_iteration_count,
-            competitive_probe
-                .competitive_budget_profile
-                .effective_iteration_budget,
+            competitive_runtime_budget.executed_iteration_count,
+            competitive_runtime_budget.max_iteration_count,
         ),
     );
     let focused_ready_frontier_gap =
@@ -654,6 +657,12 @@ fn build_lp_bz_budget_coverage_experiment_summary(
         "lp_bz_baseline.summary.lp_bz_round_repair.local_optimizer_runtime_budget_contract.execution_state"
             .to_owned(),
         "lp_bz_baseline.summary.lp_bz_round_repair.local_optimizer_runtime_budget_contract.budget_hit"
+            .to_owned(),
+        "lp_bz_baseline.summary.lp_bz_round_repair.competitive_probe.competitive_local_optimizer_runtime_budget_contract.execution_state"
+            .to_owned(),
+        "lp_bz_baseline.summary.lp_bz_round_repair.competitive_probe.competitive_local_optimizer_runtime_budget_contract.budget_hit"
+            .to_owned(),
+        "lp_bz_baseline.summary.lp_bz_round_repair.competitive_probe.competitive_local_optimizer_runtime_budget_contract.summary"
             .to_owned(),
         "lp_bz_baseline.summary.lp_bz_round_repair.competitive_probe.competitive_local_optimizer_executed_iteration_count"
             .to_owned(),
@@ -685,10 +694,11 @@ fn build_lp_bz_budget_coverage_experiment_summary(
             "budget-expansion-changes-proxy-candidate".to_owned(),
             "prioritize-budget-expansion-follow-up".to_owned(),
             format!(
-                "Budget expansion changes the LP/BZ proxy candidate: focused local search used {} with execution_state=`{}`, while the competitive probe used {} and moves the proxy objective {:.6} -> {:.6} ({:+.6}), shrinking the ready_frontier gap {:.6} -> {:.6}. This reduces uncertainty toward a budget blocker, but parity_claim_status remains `{parity_claim_status}`.",
+                "Budget expansion changes the LP/BZ proxy candidate: focused local search used {} with execution_state=`{}`, while the competitive probe used {} with execution_state=`{}` and moves the proxy objective {:.6} -> {:.6} ({:+.6}), shrinking the ready_frontier gap {:.6} -> {:.6}. This reduces uncertainty toward a budget blocker, but parity_claim_status remains `{parity_claim_status}`.",
                 focused_budget_usage,
                 focused_runtime_budget.execution_state,
                 competitive_budget_usage,
+                competitive_runtime_budget.execution_state,
                 focused_candidate_discounted_objective,
                 competitive_probe_discounted_objective,
                 competitive_probe.local_search_score_delta_vs_focused_proxy,
@@ -700,10 +710,12 @@ fn build_lp_bz_budget_coverage_experiment_summary(
             "neither-budget-nor-coverage-dominates".to_owned(),
             "request-schedule-level-ready-frontier-proof".to_owned(),
             format!(
-                "Precedence coverage is {} and budget depletion is not observed (focused {}, competitive {}). The budget-expanded probe only moves the LP/BZ proxy candidate {:.6} -> {:.6} ({:+.6}) and leaves residual ready_frontier gap {:.6}, so neither extra precedence coverage nor the current budget expansion is the dominant uncertainty; the surfaced blocker remains `{empirical_dominant_blocker}` while parity_claim_status stays `{parity_claim_status}`.",
+                "Precedence coverage is {} and budget depletion is not observed (focused {} / `{}`, competitive {} / `{}`). The budget-expanded probe only moves the LP/BZ proxy candidate {:.6} -> {:.6} ({:+.6}) and leaves residual ready_frontier gap {:.6}, so neither extra precedence coverage nor the current budget expansion is the dominant uncertainty; the surfaced blocker remains `{empirical_dominant_blocker}` while parity_claim_status stays `{parity_claim_status}`.",
                 lp_bz_precedence_coverage_label(precedence_diagnostics.coverage_basis_points),
                 focused_budget_usage,
+                focused_runtime_budget.execution_state,
                 competitive_budget_usage,
+                competitive_runtime_budget.execution_state,
                 focused_candidate_discounted_objective,
                 competitive_probe_discounted_objective,
                 competitive_probe.local_search_score_delta_vs_focused_proxy,
@@ -714,10 +726,12 @@ fn build_lp_bz_budget_coverage_experiment_summary(
             "neither-budget-nor-coverage-dominates".to_owned(),
             "prioritize-candidate-improvement-evidence".to_owned(),
             format!(
-                "Precedence coverage is {} and budget depletion is not observed (focused {}, competitive {}). The budget-expanded probe only moves the LP/BZ proxy candidate {:.6} -> {:.6} ({:+.6}) and leaves residual ready_frontier gap {:.6}, so neither extra precedence coverage nor the current budget expansion is the dominant uncertainty; the surfaced blocker remains `{empirical_dominant_blocker}` while parity_claim_status stays `{parity_claim_status}`.",
+                "Precedence coverage is {} and budget depletion is not observed (focused {} / `{}`, competitive {} / `{}`). The budget-expanded probe only moves the LP/BZ proxy candidate {:.6} -> {:.6} ({:+.6}) and leaves residual ready_frontier gap {:.6}, so neither extra precedence coverage nor the current budget expansion is the dominant uncertainty; the surfaced blocker remains `{empirical_dominant_blocker}` while parity_claim_status stays `{parity_claim_status}`.",
                 lp_bz_precedence_coverage_label(precedence_diagnostics.coverage_basis_points),
                 focused_budget_usage,
+                focused_runtime_budget.execution_state,
                 competitive_budget_usage,
+                competitive_runtime_budget.execution_state,
                 focused_candidate_discounted_objective,
                 competitive_probe_discounted_objective,
                 competitive_probe.local_search_score_delta_vs_focused_proxy,
@@ -2272,6 +2286,9 @@ fn build_benchmark_contract_audit() -> BenchmarkContractAudit {
                     "datasets[*].lp_bz_baseline.summary.lp_bz_round_repair.target_score_decomposition.local_search_score_delta_vs_round_proxy".to_owned(),
                     "datasets[*].lp_bz_baseline.summary.lp_bz_round_repair.competitive_probe.improvement_status".to_owned(),
                     "datasets[*].lp_bz_baseline.summary.lp_bz_round_repair.competitive_probe.competitive_budget_profile.mode_label".to_owned(),
+                    "datasets[*].lp_bz_baseline.summary.lp_bz_round_repair.competitive_probe.competitive_local_optimizer_runtime_budget_contract.execution_state".to_owned(),
+                    "datasets[*].lp_bz_baseline.summary.lp_bz_round_repair.competitive_probe.competitive_local_optimizer_runtime_budget_contract.budget_hit".to_owned(),
+                    "datasets[*].lp_bz_baseline.summary.lp_bz_round_repair.competitive_probe.competitive_local_optimizer_runtime_budget_contract.summary".to_owned(),
                     "datasets[*].lp_bz_baseline.summary.lp_bz_round_repair.competitive_probe.competitive_local_optimizer_termination_reason".to_owned(),
                     "datasets[*].lp_bz_baseline.summary.lp_bz_round_repair.competitive_probe.competitive_local_optimizer_executed_iteration_count".to_owned(),
                     "datasets[*].lp_bz_baseline.summary.lp_bz_round_repair.competitive_probe.competitive_local_search_discounted_target_score_proxy".to_owned(),
@@ -6670,6 +6687,18 @@ mod tests {
         }));
         assert!(lp_bz_adapter.report_surface.iter().any(|field| {
             field
+                == "datasets[*].lp_bz_baseline.summary.lp_bz_round_repair.competitive_probe.competitive_local_optimizer_runtime_budget_contract.execution_state"
+        }));
+        assert!(lp_bz_adapter.report_surface.iter().any(|field| {
+            field
+                == "datasets[*].lp_bz_baseline.summary.lp_bz_round_repair.competitive_probe.competitive_local_optimizer_runtime_budget_contract.budget_hit"
+        }));
+        assert!(lp_bz_adapter.report_surface.iter().any(|field| {
+            field
+                == "datasets[*].lp_bz_baseline.summary.lp_bz_round_repair.competitive_probe.competitive_local_optimizer_runtime_budget_contract.summary"
+        }));
+        assert!(lp_bz_adapter.report_surface.iter().any(|field| {
+            field
                 == "datasets[*].lp_bz_baseline.summary.lp_bz_round_repair.competitive_probe.competitive_local_optimizer_executed_iteration_count"
         }));
         assert!(lp_bz_adapter.report_surface.iter().any(|field| {
@@ -6841,6 +6870,18 @@ mod tests {
         assert!(paperlike_group.fields.iter().any(|field| {
             field
                 == "lp_bz_baseline.summary.lp_bz_round_repair.competitive_probe.competitive_local_optimizer_termination_reason"
+        }));
+        assert!(paperlike_group.fields.iter().any(|field| {
+            field
+                == "lp_bz_baseline.summary.lp_bz_round_repair.competitive_probe.competitive_local_optimizer_runtime_budget_contract.execution_state"
+        }));
+        assert!(paperlike_group.fields.iter().any(|field| {
+            field
+                == "lp_bz_baseline.summary.lp_bz_round_repair.competitive_probe.competitive_local_optimizer_runtime_budget_contract.budget_hit"
+        }));
+        assert!(paperlike_group.fields.iter().any(|field| {
+            field
+                == "lp_bz_baseline.summary.lp_bz_round_repair.competitive_probe.competitive_local_optimizer_runtime_budget_contract.summary"
         }));
         assert!(paperlike_group.fields.iter().any(|field| {
             field == "lp_bz_baseline.competitive_ready_frontier_probe.closure_status"
@@ -7674,6 +7715,7 @@ mod tests {
                 && driver.status == "cleared"
                 && driver.summary.contains("2/12")
                 && driver.summary.contains("3/32")
+                && driver.summary.contains("`completed-within-budget`")
         }));
         assert!(probe.empirical_driver_evidence.iter().any(|driver| {
             driver.driver_id == "round-repair-local-search-mismatch"
@@ -7724,6 +7766,12 @@ mod tests {
                 .budget_coverage_experiment
                 .summary
                 .contains("leaves residual ready_frontier gap 3.000000")
+        );
+        assert!(
+            probe
+                .budget_coverage_experiment
+                .summary
+                .contains("competitive 3/32 (9.38%) / `completed-within-budget`")
         );
         assert!(
             probe
@@ -8012,6 +8060,7 @@ mod tests {
             driver.driver_id == "budget-depletion"
                 && driver.status == "blocking"
                 && driver.summary.contains("12/12")
+                && driver.summary.contains("`completed-within-budget`")
         }));
         assert_eq!(
             probe.budget_coverage_experiment.experiment_status,
@@ -8040,6 +8089,12 @@ mod tests {
                 .budget_coverage_experiment
                 .summary
                 .contains("92.000000 -> 93.000000 (+1.000000)")
+        );
+        assert!(
+            probe
+                .budget_coverage_experiment
+                .summary
+                .contains("competitive probe used 3/32 (9.38%) with execution_state=`completed-within-budget`")
         );
         assert!(
             probe
