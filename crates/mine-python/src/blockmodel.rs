@@ -19,7 +19,7 @@ use crate::{
 #[pyclass(module = "miners._native", name = "BlockModel")]
 #[derive(Debug, Clone)]
 pub(crate) struct PyBlockModel {
-    inner: BlockModel,
+    pub(crate) inner: BlockModel,
 }
 
 #[pymethods]

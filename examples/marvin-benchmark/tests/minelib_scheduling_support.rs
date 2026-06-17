@@ -12,7 +12,9 @@ use benchmark_blocks_support::read_benchmark_blocks;
 use marvin_support::{
     read_minelib_cpit_solution, read_minelib_precedence_graph, read_minelib_upit_block_values,
 };
-use mine_sdk::{ColumnId, NestingAccessRules, PhaseDesign, PushbackPlan, uniform_revenue_factors};
+use mine_sdk::{
+    ColumnId, NestingAccessRules, PhaseDesign, experimental::PushbackPlan, uniform_revenue_factors,
+};
 use minelib_scheduling_support::{
     MARVIN_PAPERLIKE_PROVENANCE_CHAIN, MARVIN_SELECTED_BLOCK_SOURCE,
     MCLAUGHLIN_LIMIT_COMPARABLE_PROVENANCE_CHAIN, MCLAUGHLIN_LIMIT_SELECTED_BLOCK_SOURCE,

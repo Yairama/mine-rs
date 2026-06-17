@@ -12,16 +12,29 @@ use std::fs;
 use std::path::PathBuf;
 
 use mine_sdk::{
-    ArtifactId, BlockDimensions, BlockModel, ColumnData, ColumnId, ColumnLogicalType,
-    ColumnMiningRole, ColumnSchema, ColumnSchemaSet, Coordinate3D, DestinationAssumptionSet,
-    DestinationAssumptions, DestinationCapacity, DestinationId, DestinationKind,
-    DestinationPayability, DestinationRecovery, EconomicBlockModel, EconomicBlockModelConfig,
-    GridDefinition, GridShape, LongTermSchedule, LongTermScheduleEntry,
-    LongTermSchedulePeriodCapacity, MeasurementUnit, Metadata, ModelId, PushbackPlan, ScenarioId,
-    SearchAnisotropy, SearchNeighborhood, SequentialGaussianSimulationOptions, SimulatedNodeValue,
-    SimulationTarget, SpatialSample, VariogramFitSummary, VariogramLagConfig, VariogramModel,
-    VariogramModelKind, evaluate_long_term_schedule_economics,
-    generate_sequential_gaussian_ensemble, summarize_long_term_schedule_risk,
+    blockmodel::{
+        BlockModel, ColumnData, EstimationPass, ExperimentalVariogram, ExperimentalVariogramLag,
+        SampleCountLimits, SearchAnisotropy, SearchNeighborhood,
+        SequentialGaussianSimulationOptions, SimulatedNodeValue, SimulationTarget, SpatialSample,
+        VariogramFitSummary, VariogramLagConfig, VariogramModel, VariogramModelKind,
+        generate_sequential_gaussian_ensemble,
+    },
+    core::{
+        ArtifactId, BlockDimensions, ColumnId, ColumnLogicalType, ColumnMiningRole, ColumnSchema,
+        ColumnSchemaSet, Coordinate3D, GridDefinition, GridShape, MeasurementUnit, Metadata,
+        ModelId, ScenarioId,
+    },
+    economics::{
+        DestinationAssumptionSet, DestinationAssumptions, DestinationCapacity, DestinationId,
+        DestinationKind, DestinationPayability, DestinationRecovery, EconomicBlockModel,
+        EconomicBlockModelConfig, evaluate_long_term_schedule_economics,
+        summarize_long_term_schedule_risk,
+    },
+    experimental::PushbackPlan,
+    planning::{
+        LongTermSchedule, LongTermScheduleEntry, LongTermSchedulePeriodCapacity,
+        NestingAccessRules, PhaseDesign,
+    },
 };
 use serde::Serialize;
 
@@ -267,33 +280,33 @@ fn sample(sample_id: &str, x: f64, value: f64) -> SpatialSample {
     .expect("sample should be valid")
 }
 
-fn estimation_pass() -> Result<mine_sdk::EstimationPass, Box<dyn std::error::Error>> {
-    Ok(mine_sdk::EstimationPass::new(
+fn estimation_pass() -> Result<EstimationPass, Box<dyn std::error::Error>> {
+    Ok(EstimationPass::new(
         "primary",
         SearchNeighborhood::new(
             SearchAnisotropy::new(3.0, 3.0, 3.0, 0.0, 0.0, 0.0)?,
             Some(vec!["ore".to_owned()]),
         )?,
-        mine_sdk::SampleCountLimits::new(2, 3)?,
+        SampleCountLimits::new(2, 3)?,
     )?)
 }
 
 fn variogram_model() -> Result<VariogramModel, Box<dyn std::error::Error>> {
-    let variogram = mine_sdk::ExperimentalVariogram {
+    let variogram = ExperimentalVariogram {
         column_id: ColumnId::new("cu")?,
         domain: Some("ore".to_owned()),
         direction: None,
         lag_config: VariogramLagConfig::new(1.0, 2, 0.1)?,
         sample_count: 3,
         lags: vec![
-            mine_sdk::ExperimentalVariogramLag {
+            ExperimentalVariogramLag {
                 lag_index: 1,
                 lag_center: 1.0,
                 pair_count: 2,
                 average_distance: Some(1.0),
                 semivariance: Some(0.367_187_5),
             },
-            mine_sdk::ExperimentalVariogramLag {
+            ExperimentalVariogramLag {
                 lag_index: 2,
                 lag_center: 2.0,
                 pair_count: 1,
@@ -383,7 +396,7 @@ fn mill_destination() -> Result<DestinationAssumptions, Box<dyn std::error::Erro
 fn sample_phase_plan() -> PushbackPlan {
     PushbackPlan {
         phases: vec![
-            mine_sdk::PhaseDesign {
+            PhaseDesign {
                 phase_id: "phase-west".to_owned(),
                 pushback_index: 0,
                 shell_index: Some(0),
@@ -394,7 +407,7 @@ fn sample_phase_plan() -> PushbackPlan {
                 total_tonnage: Some(10.0),
                 predecessor_phase_ids: vec![],
             },
-            mine_sdk::PhaseDesign {
+            PhaseDesign {
                 phase_id: "phase-east".to_owned(),
                 pushback_index: 0,
                 shell_index: Some(0),
@@ -409,7 +422,7 @@ fn sample_phase_plan() -> PushbackPlan {
         phase_count: 2,
         total_block_count: 2,
         total_tonnage: Some(20.0),
-        nesting_rules: mine_sdk::NestingAccessRules::strict_sequential(),
+        nesting_rules: NestingAccessRules::strict_sequential(),
         limitations: vec![],
     }
 }

@@ -5,6 +5,7 @@ mod analytics;
 mod binding;
 mod blockmodel;
 mod core;
+mod tools;
 mod validation;
 
 use mine_sdk::MineError;
@@ -25,9 +26,11 @@ pub(crate) fn to_py_mine_error(error: MineError) -> PyErr {
 #[pymodule]
 fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("MineError", module.py().get_type::<PyMineError>())?;
+    module.add("__version__", env!("CARGO_PKG_VERSION"))?;
     binding::register(module)?;
     core::register(module)?;
     analytics::register(module)?;
+    tools::register(module)?;
     validation::register(module)?;
     blockmodel::register(module)?;
     Ok(())

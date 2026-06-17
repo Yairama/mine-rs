@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::minelib_scheduling_support::MarvinPreferredNestedShellFamilyContract;
-use mine_sdk::{BlockModel, MineError, PhaseDesign, PushbackPlan, linear_to_ijk};
+use mine_sdk::{BlockModel, MineError, PhaseDesign, experimental::PushbackPlan, linear_to_ijk};
 use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

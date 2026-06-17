@@ -1,18 +1,18 @@
 # Tabla de paridad mine-rs vs literatura MineLib
 
-Fuente canónica del estado de paridad del repo contra los resultados publicados (MR-217).
+Fuente canónica del estado de paridad del repo contra los resultados publicados y los reportes JSON versionados (MR-217).
 
 Reglas de mantenimiento:
 
-- Los valores `mine-rs` de esta tabla se validan automáticamente contra los reportes JSON versionados mediante `examples/marvin-benchmark/tests/literature_parity.rs`. Si un reporte se regenera con valores nuevos, el test falla hasta actualizar esta tabla.
-- Los valores publicados provienen de los info files staged (`datasets/benchmarks/*/​*-info.txt`, valores MineLib originales de [R29] Espinoza et al., doi 10.1007/s10479-012-1258-3). La literatura posterior ([R33] Jélvez et al., [R37] Rivera Letelier et al., doi 10.1287/opre.2019.1965) mejoró varios best-knowns; superar el incumbent staged 2012 NO equivale a reclamar un best-known mundial.
+- El contrato validado por `examples/marvin-benchmark/tests/literature_parity.rs` exige que este documento cite, con redondeo a tres decimales, los valores canónicos tomados de los reportes JSON versionados que sustentan la tabla y sus notas (UPIT oficiales reproducidos, candidatos TopoSort auditados, bounds Lagrangianos y el candidato self-contained citado para Marvin CPIT). Si un reporte se regenera con valores nuevos, el test falla hasta actualizar este documento.
+- La columna de publicado usa como baseline los info files staged (`datasets/benchmarks/*/​*-info.txt`, valores MineLib oficiales de [R29] Espinoza et al., doi 10.1007/s10479-012-1258-3). La literatura posterior ([R33] Jélvez et al., [R37] Rivera Letelier et al., doi 10.1287/opre.2019.1965) mejoró varios best-knowns; esas mejoras se mencionan como contexto de comparabilidad, pero no reemplazan el valor oficial staged en esta tabla. Superar el incumbent staged 2012 NO equivale a reclamar un best-known mundial.
 - Los runtimes viven en los reportes JSON (telemetría MR-215) y no se copian aquí porque dependen de la máquina.
 
 ## Estado por instancia y formulación
 
-Última actualización: 2026-06-10.
+Última actualización: 2026-06-16.
 
-| Instancia | Formulación | Publicado (MineLib staged) | mine-rs (mejor versionado) | Método propio | Gap vs publicado | Clasificación |
+| Instancia | Formulación | Oficial staged (MineLib) | mine-rs (valor resumido) | Método propio | Gap vs publicado | Clasificación |
 | --- | --- | ---: | ---: | --- | ---: | --- |
 | marvin | UPIT | 1415655436 | `1415655436.137` | Dinic exacto (MR-173) | 0.000% (paridad) | paridad-exacta |
 | marvin | CPIT | 820726048 (LP 863916131) | `841566836.434` | TopoSort + delay, ordering self-contained desde la relajación Lagrangiana propia (MR-211/MR-213) | -2.539% (supera incumbent 2012 y al candidato con ordering LP staged; LP gap 2.59%) | candidato-factible-auditado-self-contained |
@@ -31,6 +31,7 @@ Reglas de mantenimiento:
 
 ## Notas de lectura
 
+0. **Cómo leer el contrato.** La columna `Oficial staged (MineLib)` siempre referencia el baseline oficial staged. Si una fila o nota cita una variante posterior o una mejora propia adicional (por ejemplo, el ordering LP staged de CPIT Marvin o la variante self-contained de PCPSP Marvin), ese valor sigue estando cubierto por los reportes JSON y por el test de paridad, pero no sustituye el baseline oficial de comparación.
 1. **UPIT cerrado en valor y validado en escala.** El backend Dinic reproduce exactamente los tres objetivos UPIT oficiales, incluida la instancia full de 2.14M bloques / 73.1M aristas de precedencia (solve ≈ 26 s wall-clock en la máquina de referencia; el parsing del `prec` domina el tiempo total). Evidencia: `datasets/benchmarks/outputs/upit-runtime-report.json` (MR-209).
 2. **CPIT con candidato propio factible y ya self-contained.** La heurística TopoSort core (`solve_cpit_with_toposort`, Chicoisne et al. 2012 [R35]) con post-pass de retraso de estéril produce schedules auditados (recursos sin exceso, precedencias verificadas arista por arista) que superan el incumbent staged 2012 en las tres instancias. La variante con ordering desde la relajación LP staged queda en `831910167.445` (Marvin); la variante **self-contained** —ordering derivado de la mejor solución interna de la relajación Lagrangiana propia (MR-213), sin consumir artefactos LP de MineLib— la supera con `841566836.434` (gap LP 2.59%) y elimina la advertencia de protocolo. Evidencia: `datasets/benchmarks/outputs/cpit-toposort-report.json` (MR-211) y `datasets/benchmarks/outputs/pcpsp-bound-report.json` (MR-213).
 3. **PCPSP avanzó a gap de un dígito en Marvin.** La extensión multi-destino de la heurística TopoSort (`solve_pcpsp_with_toposort`, decisión de destino por valor descontado máximo entre pares factibles) lleva el candidato Marvin de 664.2M (gap 25.0%) a 829,532,040 (gap 6.37%), superando además la baseline `cpit-period-routed` (820.7M) — los dos primeros hitos de MR-212. McLaughlin Limit baja de 61.9% a 18.85% de gap usando `LPcpit` como ordering proxy documentado (su `LPpcpsp` no está staged, MR-214). Los candidatos están auditados (recursos sin exceso, precedencias verificadas). El cierre restante de la campaña (bound LP/BZ propio, round/repair K-step, búsqueda local presupuestada y gate temporal) vive en MR-212/MR-213/MR-214. Evidencia: `datasets/benchmarks/outputs/pcpsp-toposort-report.json`; el candidato exploratorio anterior queda en `datasets/benchmarks/outputs/multi-mine-scheduling-report.json`.

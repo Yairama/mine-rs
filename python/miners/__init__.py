@@ -1,8 +1,15 @@
-"""Superficie Python inicial para `mine-rs`."""
+"""Superficie Python recomendada para `mine-rs`.
+
+La raiz `miners` expone la superficie alpha recomendada. Las APIs
+experimentales viven en `miners.experimental`.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as package_version
+
+from . import experimental
 
 from ._native import BasicStatistics
 from ._native import BlockDimensions
@@ -19,90 +26,77 @@ from ._native import PyBindingSurface as PythonBindingSurface
 from ._native import ValidationIssue
 from ._native import ValidationReport
 from ._native import WeightedGradeStatistic
+from ._native import __version__ as _native_version
 from ._native import binding_surface
 from ._native import validate_duplicate_coordinates
 from ._native import validate_duplicate_indices
 
 
-@dataclass(slots=True)
-class ExperimentalBlockModelResult:
-    """Resultados acumulados por el workflow experimental.
+try:
+    __version__ = package_version("miners")
+except PackageNotFoundError:
+    __version__ = _native_version
 
-    La API es deliberadamente explicita: no infiere columnas de tonelaje o ley y solo
-    encadena llamadas ya disponibles en `BlockModel`.
-    """
+# `miners.MineError` remains the single public exception surface for invalid
+# user input and binding/tool contract mismatches. Normal validation findings
+# are returned explicitly in `ValidationReport`.
 
-    validation: ValidationReport | None = None
-    summary: ModelSummary | None = None
-    basic_statistics: BasicStatistics | None = None
-    grouped_statistics: list[GroupedStatistics] | None = None
-    grade_tonnage: list[GradeTonnagePoint] | None = None
-    dataframe: object | None = None
+def load_from_pandas(
+    dataframe: object,
+    grid: GridDefinition,
+    schema: list[ColumnSchema],
+    metadata: dict[str, str] | None = None,
+) -> BlockModel:
+    """Construye un `BlockModel` desde un `DataFrame` con una llamada explícita."""
 
-
-class ExperimentalBlockModelWorkflow:
-    """Workflow experimental estilo fluent API sobre `BlockModel`.
-
-    Limites:
-    - no ejecuta calculos nuevos; delega a la superficie estable existente;
-    - no infiere columnas criticas como ley o tonelaje;
-    - cada paso guarda solo el ultimo resultado calculado.
-    """
-
-    def __init__(self, model: BlockModel) -> None:
-        self._model = model
-        self._result = ExperimentalBlockModelResult()
-
-    def validate(self, **kwargs: object) -> ExperimentalBlockModelWorkflow:
-        self._result.validation = self._model.validate(**kwargs)
-        return self
-
-    def summary(self) -> ExperimentalBlockModelWorkflow:
-        self._result.summary = self._model.summary()
-        return self
-
-    def basic_statistics(self, tonnage_column: str) -> ExperimentalBlockModelWorkflow:
-        self._result.basic_statistics = self._model.basic_statistics(tonnage_column)
-        return self
-
-    def grouped_statistics(
-        self, group_by: str, tonnage_column: str
-    ) -> ExperimentalBlockModelWorkflow:
-        self._result.grouped_statistics = self._model.grouped_statistics(
-            group_by, tonnage_column
-        )
-        return self
-
-    def grade_tonnage(
-        self, grade_column: str, tonnage_column: str, cutoffs: list[float]
-    ) -> ExperimentalBlockModelWorkflow:
-        self._result.grade_tonnage = self._model.grade_tonnage(
-            grade_column, tonnage_column, cutoffs
-        )
-        return self
-
-    def to_pandas(
-        self, columns: list[str] | None = None
-    ) -> ExperimentalBlockModelWorkflow:
-        self._result.dataframe = self._model.to_pandas(columns=columns)
-        return self
-
-    def results(self) -> ExperimentalBlockModelResult:
-        return self._result
+    return BlockModel.from_pandas(
+        dataframe=dataframe,
+        grid=grid,
+        schema=schema,
+        metadata=metadata,
+    )
 
 
-def experimental_workflow(model: BlockModel) -> ExperimentalBlockModelWorkflow:
-    """Crea un workflow experimental encadenable sobre `BlockModel`."""
+def load_from_numpy(
+    grid: GridDefinition,
+    schema: list[ColumnSchema],
+    metadata: dict[str, str] | None = None,
+    float_columns: dict[str, object] | None = None,
+    integer_columns: dict[str, object] | None = None,
+    boolean_columns: dict[str, object] | None = None,
+) -> BlockModel:
+    """Construye un `BlockModel` desde arrays `numpy` con una llamada explícita."""
 
-    return ExperimentalBlockModelWorkflow(model)
+    return BlockModel.from_numpy(
+        grid=grid,
+        schema=schema,
+        metadata=metadata,
+        float_columns=float_columns,
+        integer_columns=integer_columns,
+        boolean_columns=boolean_columns,
+    )
+
+
+def export_to_pandas(
+    model: BlockModel, columns: list[str] | None = None
+) -> object:
+    """Exporta columnas del modelo a `pandas` sin ocultar el intercambio de datos."""
+
+    return model.to_pandas(columns=columns)
+
+
+def export_to_numpy(
+    model: BlockModel, columns: list[str] | None = None
+) -> object:
+    """Exporta columnas del modelo a `numpy` sin ocultar el intercambio de datos."""
+
+    return model.to_numpy(columns=columns)
 
 
 __all__ = [
     "BasicStatistics",
     "BlockDimensions",
     "BlockModel",
-    "ExperimentalBlockModelResult",
-    "ExperimentalBlockModelWorkflow",
     "ColumnNullCount",
     "ColumnSchema",
     "Coordinate3D",
@@ -115,8 +109,13 @@ __all__ = [
     "ValidationIssue",
     "ValidationReport",
     "WeightedGradeStatistic",
-    "experimental_workflow",
+    "__version__",
+    "export_to_numpy",
+    "export_to_pandas",
+    "experimental",
     "binding_surface",
+    "load_from_numpy",
+    "load_from_pandas",
     "validate_duplicate_coordinates",
     "validate_duplicate_indices",
 ]

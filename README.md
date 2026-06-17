@@ -8,6 +8,12 @@ La apuesta no es empezar como otra suite minera cerrada, sino como una base reus
 
 > Alcance recomendado del producto actual: ver [`docs/references/sdk-alpha-scope.md`](docs/references/sdk-alpha-scope.md).
 
+> Garantías exactas de versionado y releases `0.x`: ver [`docs/references/alpha-release-policy.md`](docs/references/alpha-release-policy.md).
+
+> Lectura transversal de madurez: ver [`docs/references/maturity-matrix.md`](docs/references/maturity-matrix.md) para distinguir qué superficies ya deben leerse como SDK usable, cuáles siguen experimentales y cuáles son benchmark-side o de investigación.
+
+> Guardrail público de performance: ver [`docs/references/public-performance-baseline.md`](docs/references/public-performance-baseline.md) para la baseline de workflows públicos del SDK `alpha`, separada del material benchmark-side de diagnóstico y comparabilidad.
+
 ## Qué estamos construyendo
 
 `mine-rs` busca convertirse en la capa base abierta para workflows mineros modernos:
@@ -106,6 +112,69 @@ La prioridad del proyecto hoy es consolidar una columna vertebral útil y abiert
 
 Ese orden es intencional: primero cálculo confiable y contratos sólidos; después más automatización, más tooling y una capa agentica más rica.
 
+## Workflow Python recomendado hoy
+
+Hoy el camino público soportado para usuarios Python debe entenderse como:
+
+1. `load_from_pandas(...)` o `load_from_numpy(...)`
+2. `validate()`
+3. `summary()` / `basic_statistics()` / `grouped_statistics()` / `grade_tonnage()`
+4. `export_to_pandas(...)` o `export_to_numpy(...)`
+
+Ejemplo ejecutable del workflow actual:
+
+```python
+from miners import export_to_pandas, load_from_pandas
+
+model = load_from_pandas(
+    dataframe=df,
+    grid=grid,
+    schema=schema,
+    metadata={"source": "notebook"},
+)
+
+report = model.validate()
+summary = model.summary()
+stats = model.basic_statistics("tonnes")
+by_domain = model.grouped_statistics("domain", "tonnes")
+curve = model.grade_tonnage("cu", "tonnes", [0.3, 0.5, 0.7])
+exported = export_to_pandas(model, columns=["cu", "tonnes", "domain"])
+```
+
+Este es el flujo actual que la documentación debe promover. La API fluent o wrappers encadenables viven en `miners.experimental` y siguen siendo opt-in, no el camino por defecto para usuarios generales.
+
+## Contrato actual de errores en Python
+
+La superficie pública actual expone una sola excepción Python: `miners.MineError`.
+
+Ese error único cubre hoy las mismas categorías base que existen en Rust:
+
+- `Io`
+- `Schema`
+- `Grid`
+- `Validation`
+- `Reblock`
+- `Economics`
+- `Planning`
+- `InvalidParameter`
+- `Numeric`
+
+La raíz `miners` no publica todavía una jerarquía de excepciones más fina (`SchemaError`, `GridError`, etc.). Si más adelante aparece, deberá documentarse como una ampliación del contrato; hoy el contrato público correcto es capturar `miners.MineError`.
+
+Las validaciones ordinarias del modelo no siguen ese camino por defecto: `validate()` y los helpers relacionados devuelven un `ValidationReport` estructurado para inspección, serialización y tabulación. En otras palabras, los hallazgos esperables de calidad o consistencia del modelo viven en el reporte; `MineError` queda para fallas de operación, contrato o parámetros que impiden ejecutar correctamente el workflow solicitado.
+
+## Dónde empezar con ejemplos Python ejecutables
+
+Si quieres descubrir el SDK Python alpha por casos de uso reales, empieza por `examples/python/`.
+
+Hoy ese pack ejecutable cubre:
+
+- [`examples/python/pandas_load_validate_analyze_export.py`](examples/python/pandas_load_validate_analyze_export.py): flujo público `load -> validate -> analyze -> export` con `pandas`.
+- [`examples/python/numpy_load_validate_export.py`](examples/python/numpy_load_validate_export.py): carga y exportación desde `numpy` usando la raíz `miners`.
+- [`examples/python/tools_workflow.py`](examples/python/tools_workflow.py): uso básico de `miners.tools` sobre un `BlockModel` pequeño.
+
+La regla de lectura es simple: `README.md` explica qué flujo público conviene usar, `examples/python/` muestra cómo correrlo y los ejemplos conceptuales quedan reservados para documentar APIs futuras. Si un snippet depende de wrappers fluent o rutas todavía opt-in, debe quedar separado y marcado como experimental en `miners.experimental`.
+
 ## Documentación
 
 | Documento | Propósito |
@@ -116,13 +185,16 @@ Ese orden es intencional: primero cálculo confiable y contratos sólidos; despu
 | [`docs/references/product-scope.md`](docs/references/product-scope.md) | Alcance funcional, límites y etapas del producto. |
 | [`docs/references/domain-capabilities.md`](docs/references/domain-capabilities.md) | Mapa de capacidades mineras objetivo. |
 | [`docs/references/mining-engine-roadmap.md`](docs/references/mining-engine-roadmap.md) | Ruta end-to-end basada en literatura para economía, pit final, pushbacks y LOM. |
-| [`docs/references/benchmark-diagnosis.md`](docs/references/benchmark-diagnosis.md) | Diagnóstico profundo del estado benchmark MineLib/Marvin/McLaughlin, brechas de comparabilidad y próximos pasos. |
-| [`docs/references/literature-parity.md`](docs/references/literature-parity.md) | Tabla viva de paridad mine-rs vs resultados publicados MineLib, validada por test contra los reportes JSON. |
+| [`docs/references/benchmark-diagnosis.md`](docs/references/benchmark-diagnosis.md) | Diagnóstico benchmark-side del estado MineLib/Marvin/McLaughlin; para la tabla canónica de paridad, ver `literature-parity.md`. |
+| [`docs/references/public-performance-baseline.md`](docs/references/public-performance-baseline.md) | Baseline pública de performance para workflows del SDK `alpha`, usada como guardrail de producto y lectura de regresiones, no como benchmark-side de investigación. |
+| [`docs/references/literature-parity.md`](docs/references/literature-parity.md) | Fuente canónica de la paridad mine-rs vs resultados publicados MineLib, validada por test contra los reportes JSON. |
 | [`docs/references/architecture.md`](docs/references/architecture.md) | Arquitectura técnica por capas y módulos. |
 | [`docs/references/repository-strategy.md`](docs/references/repository-strategy.md) | Decisión sobre monorepo, crates Rust, paquetes Python y capa agentica. |
 | [`docs/references/sparse-blockmodel-design.md`](docs/references/sparse-blockmodel-design.md) | Diseño experimental de materialización sparse en `BlockModel`. |
 | [`docs/references/python-sdk-design.md`](docs/references/python-sdk-design.md) | Diseño de experiencia Python y criterios de API. |
 | [`docs/references/sdk-alpha-scope.md`](docs/references/sdk-alpha-scope.md) | Alcance oficial del SDK `alpha`, incluyendo superficies recomendadas, experimentales e internas. |
+| [`docs/references/alpha-release-policy.md`](docs/references/alpha-release-policy.md) | Garantías de versionado, compatibilidad y gates mínimos para releases `0.x`. |
+| [`docs/references/maturity-matrix.md`](docs/references/maturity-matrix.md) | Matriz canónica de madurez para distinguir superficies estables para SDK, experimentales y benchmark-side. |
 | [`docs/references/agentic-layer.md`](docs/references/agentic-layer.md) | Diseño conceptual de la capa agentica futura. |
 | [`docs/references/roadmap.md`](docs/references/roadmap.md) | Roadmap narrativo por fases. |
 | [`docs/references/temporal-backlog.md`](docs/references/temporal-backlog.md) | Backlog temporal original conservado como referencia histórica. |
@@ -145,12 +217,12 @@ La fundación del workspace ya reserva el set base de dependencias para las sigu
 | `pyo3` | Bindings Rust ↔ Python sin duplicar lógica minera. |
 | `maturin` | Tooling externo para compilar y empaquetar `mine-python` cuando se habilite la superficie Python real. |
 
-## Uso esperado
+## Uso esperado a futuro
 
-La experiencia objetivo desde Python será similar a trabajar con una librería técnica:
+La experiencia objetivo de mediano plazo desde Python será similar a trabajar con una librería técnica más amplia que el workflow público actual:
 
 ```python
-# Ejemplo conceptual: API no implementada todavía.
+# Ejemplo conceptual: no representa el camino público recomendado hoy.
 from miners import BlockModel
 
 model = BlockModel.read_parquet("block_model.parquet")
@@ -199,8 +271,8 @@ Actualmente el repositorio ya cuenta con:
 - un prototipo experimental `build_adaptive_reblock_prototype(...)` en `mine-reblock` para planificar estrategias variables por zona/dominio con reglas explícitas, resúmenes por zona y limitaciones documentadas, sin ejecutar todavía reblocking mixto automático.
 - analytics base en Rust para `BlockModel`: estadísticas básicas, agregación por grupos y curva ley-tonelaje con cutoffs explícitos, ya expuestos también en Python.
 - un frente inicial de estimación en `mine-blockmodel` con compositing determinista, auditoría de dominios, declustering, histogramas ponderados, variografía experimental, fitting de modelos variográficos autorizados (`nugget`, `spherical`, `exponential`, `gaussian`), una API de neighborhoods/passes con anisotropía explícita, estimadores puntuales base (`nearest neighbour` e `inverse distance weighting`) y kriging puntual (`ordinary` y `simple`) con pesos y varianzas serializables.
-- interoperabilidad `numpy` inicial en Python para construir `BlockModel` desde arrays `float`/`integer`/`boolean` y exportar columnas numéricas como `ndarray`; hoy este puente copia datos entre Rust y Python para mantener seguridad y simplicidad.
-- una API Python experimental `experimental_workflow(...)` que encadena validación, summary, estadísticas, grouped statistics, curva ley-tonelaje y export a pandas sin ocultar columnas críticas; queda marcada como wrapper experimental sobre la superficie estable existente.
+- interoperabilidad `pandas` y `numpy` inicial en Python para cargar modelos con `load_from_pandas(...)` / `load_from_numpy(...)` y exportarlos con `export_to_pandas(...)` / `export_to_numpy(...)`; hoy estos puentes priorizan seguridad y simplicidad, por lo que pueden copiar datos entre Rust y Python.
+- una API Python experimental `miners.experimental.experimental_workflow(...)` que encadena validación, summary, estadísticas, grouped statistics, curva ley-tonelaje y export a pandas sin ocultar columnas críticas; queda marcada como wrapper experimental separado de la superficie recomendada en la raíz `miners`.
 - un crate `mine-planning` con generación determinista de bancos, phase tagging, `MiningScenario` serializable, `PrecedenceGraph` acíclico y `Schedule` mínimo con restricciones básicas de tonelaje y avance vertical.
 - un prototipo experimental de pushbacks en `mine-planning` derivado desde `Schedule` mediante `build_pushback_prototype(...)`, agrupando por fase y explicitando limitaciones y siguientes pasos sin prometer optimización.
 - un crate `mine-tools` con contrato común serializable y tools iniciales `inspect_model`, `validate_model`, `query_blocks`, `aggregate_blocks`, `grade_tonnage`, `create_scenario`, `evaluate_scenario` y `compare_scenarios`, con evaluación financiera explícita por periodo y comparación estructurada de reportes.
@@ -213,8 +285,11 @@ Las siguientes etapas deben profundizar Arrow IPC cuando haga falta un artefacto
 use std::collections::BTreeMap;
 
 use mine_sdk::{
-    ColumnId, CsvIndexColumns, VulcanBooleanFormat, VulcanCoordinateColumns,
-    VulcanCsvWriteOptions, write_block_model_vulcan_csv,
+    core::ColumnId,
+    io::{
+        CsvIndexColumns, VulcanBooleanFormat, VulcanCoordinateColumns, VulcanCsvWriteOptions,
+        write_block_model_vulcan_csv,
+    },
 };
 
 let options = VulcanCsvWriteOptions::new(
@@ -245,6 +320,8 @@ Convención de tests Rust del workspace: dejar tests unitarios mínimos junto al
 
 La suite criterion vive en `benchmarks/` (`mine-benchmarks`, MR-216) y cubre microbenchmarks de las operaciones críticas actuales: indexación `xyz↔ijk`, precedencias con la plantilla Marvin de 17 offsets, solver exacto de UPL (Dinic), shells anidados, scheduler `ready frontier` y heurística CPIT TopoSort. Los microbenchmarks miden operaciones aisladas sobre fixtures sintéticos; los pipelines completos sobre instancias MineLib reales se miden con los harnesses de runtime descritos abajo (telemetría MR-215).
 
+Como complemento product-side, la baseline pública de performance vive en [`docs/references/public-performance-baseline.md`](docs/references/public-performance-baseline.md). Ese documento fija guardrails para workflows públicos del SDK `alpha` como carga, validación y analytics base; no reemplaza ni resume por sí solo el material benchmark-side de runtime, comparabilidad o diagnóstico descrito en esta sección.
+
 Para el benchmark local de Marvin ya existen ejemplos ejecutables para inspeccionar `datasets/benchmarks/marvin/marvin.blocks`, generar un `prec` abierto y comparar referencias Marvin locales contra las salidas actuales de `mine-rs`:
 
 ```powershell
@@ -267,7 +344,7 @@ Los cuatro últimos bins versionan reportes con telemetría de runtime por etapa
 - `pcpsp_toposort` (MR-212) extiende la heurística al caso multi-destino PCPSP con decisión de destino durante la construcción (`solve_pcpsp_with_toposort`: valor descontado máximo entre pares destino/periodo factibles, de modo que el mineral espera capacidad de planta en vez de perder valor en botadero). Reporte: `datasets/benchmarks/outputs/pcpsp-toposort-report.json`. Estado actual: Marvin 829.5M (gap 6.37% vs 886.0M oficial, cumpliendo los dos primeros hitos de MR-212; el candidato exploratorio anterior quedaba en 664.2M / 25%), McLaughlin Limit 1,072.5M (gap 18.85% con ordering proxy `LPcpit` documentado).
 - `pcpsp_bound` (MR-213) calcula bounds superiores propios con la relajación Lagrangiana de capacidades del core (`compute_pcpsp_lagrangian_bound`): el subproblema interno es un max-closure exacto tiempo-expandido con el 100% de las precedencias en cada iteración (sin checkpoints parciales; Geoffrion 1974, Dagdelen & Johnson 1986), y deriva además candidatos TopoSort **self-contained** ordenados por la propia relajación, sin consumir las relajaciones LP staged de MineLib. Reporte: `datasets/benchmarks/outputs/pcpsp-bound-report.json`. Estado actual: bounds Marvin +16.9%/+15.2% (120 iteraciones, ~4.7 s/iter con el Dinic denso interno) y McLaughlin Limit +4.0%/+6.8% (12 iteraciones) sobre los LP oficiales (gap dual restante por presupuesto finito de subgradiente, declarado en el artefacto; el resultado expone `best_multipliers` para warm-start); el candidato CPIT self-contained de Marvin (841.6M, LP gap 2.59%) supera al candidato con ordering LP staged.
 
-El estado consolidado de paridad contra la literatura vive en `docs/references/literature-parity.md` (MR-217) y se valida automáticamente contra los reportes JSON con `cargo test -p marvin-benchmark --test literature_parity`.
+La fuente canónica única del estado de paridad contra la literatura vive en `docs/references/literature-parity.md` (MR-217); README y diagnóstico solo la apuntan, y la tabla se valida automáticamente contra los reportes JSON con `cargo test -p marvin-benchmark --test literature_parity`.
 
 Para estos bins benchmark-side, la política de rutas es explícita: los datasets/references/outputs por defecto salen desde la raíz del repo, las rutas absolutas CLI se respetan tal cual y cualquier ruta relativa provista por CLI se rebasea también contra la raíz del repo para que los comandos documentados funcionen igual desde el workspace root.
 
@@ -283,9 +360,25 @@ Los artefactos externos/versionados de Marvin viven en `datasets/benchmarks/marv
 
 La base del packaging Python ya usa Maturin y expone el paquete `miners` desde `python/miners`.
 
+El contrato local soportado para contributors es deliberadamente pequeño y explícito:
+
+1. crear un `venv` limpio con Python `>=3.11`;
+2. actualizar `pip` e instalar `maturin` dentro de ese entorno;
+3. ejecutar `maturin develop` desde la raíz del repo;
+4. correr la suite `unittest` pública del paquete Python.
+
+Ese camino valida, sin depender de conocimiento tribal, que:
+
+- `crates/mine-python` compila e instala el módulo nativo dentro del `venv`;
+- `python/miners` queda importable como `miners` con las dependencias mínimas declaradas hoy (`numpy` y `pandas`);
+- la superficie pública base del SDK Python sigue viva para el workflow recomendado `load -> validate -> analyze -> export`.
+
+Hoy este es el flujo soportado para desarrollo local. No reemplaza todavía una disciplina completa de wheels y releases ni adelanta el trabajo futuro de `miners.tools`.
+
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python -m pip install --upgrade pip maturin
+.\.venv\Scripts\python -m pip install --upgrade pip
+.\.venv\Scripts\python -m pip install maturin
 .\.venv\Scripts\python -m maturin develop
 .\.venv\Scripts\python -m unittest discover -s tests -p "test_python_*.py"
 ```
@@ -343,4 +436,3 @@ Reglas prácticas:
 - No conviertas el proyecto en una GUI-first app desde el README ni desde la implementación.
 
 La fachada de `mine-sdk` ahora puede consumirse por dominio (`mine_sdk::blockmodel::BlockModel`, `mine_sdk::validation::ValidationOptions`, `mine_sdk::io::read_block_model_csv`, etc.) y también conserva los reexports planos existentes para compatibilidad.
-

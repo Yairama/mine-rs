@@ -9,6 +9,8 @@ use serde::Serialize;
 pub struct PythonBindingSurface {
     /// Nombre estable de la capa `mine-python`.
     pub binding_layer: String,
+    /// Versión expuesta por el binding nativo instalado.
+    pub package_version: String,
     /// Nombres de las capas del SDK visibles desde Python.
     pub sdk_layers: Vec<String>,
     /// Nombre de la capa de tools disponible para futuras exposiciones.
@@ -24,6 +26,7 @@ pub fn binding_surface() -> PythonBindingSurface {
 
     PythonBindingSurface {
         binding_layer: "mine-python".to_owned(),
+        package_version: env!("CARGO_PKG_VERSION").to_owned(),
         sdk_layers: public_layers()
             .iter()
             .map(|layer| layer.name.to_owned())
@@ -44,6 +47,8 @@ pub(crate) struct PyBindingSurface {
     #[pyo3(get)]
     pub binding_layer: String,
     #[pyo3(get)]
+    pub package_version: String,
+    #[pyo3(get)]
     pub sdk_layers: Vec<String>,
     #[pyo3(get)]
     pub tool_layer: String,
@@ -55,6 +60,7 @@ impl From<PythonBindingSurface> for PyBindingSurface {
     fn from(surface: PythonBindingSurface) -> Self {
         Self {
             binding_layer: surface.binding_layer,
+            package_version: surface.package_version,
             sdk_layers: surface.sdk_layers,
             tool_layer: surface.tool_layer,
             available_tools: surface.available_tools,
@@ -66,8 +72,12 @@ impl From<PythonBindingSurface> for PyBindingSurface {
 impl PyBindingSurface {
     fn __repr__(&self) -> String {
         format!(
-            "PythonBindingSurface(binding_layer={:?}, sdk_layers={:?}, tool_layer={:?}, available_tools={:?})",
-            self.binding_layer, self.sdk_layers, self.tool_layer, self.available_tools
+            "PythonBindingSurface(binding_layer={:?}, package_version={:?}, sdk_layers={:?}, tool_layer={:?}, available_tools={:?})",
+            self.binding_layer,
+            self.package_version,
+            self.sdk_layers,
+            self.tool_layer,
+            self.available_tools
         )
     }
 }

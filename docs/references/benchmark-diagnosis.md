@@ -2,49 +2,19 @@
 
 ## Resumen ejecutivo
 
+Este documento se mantiene **solo como diagnóstico benchmark-side**. La tabla canónica de paridad `mine-rs` vs literatura —por instancia, formulación, gap y clasificación— vive en [`docs/references/literature-parity.md`](literature-parity.md) y es la única fuente que debe mantenerse como respuesta primaria para "¿dónde estamos contra la literatura?".
+
 Hoy **sí existe un valor "de ~800 millones" para Marvin**, pero corresponde a **CPIT** (`820,726,048`) y no a la referencia **PCPSP** que el repo usa cuando compara scheduling con dos destinos. La referencia pública actual para Marvin PCPSP es `885,968,070`, mientras que la relajación LP-PCPSP pública llega a `911,704,665`. Eso significa que, para Marvin PCPSP, el objetivo comparable no es "llegar a 800M", sino **cerrar la brecha contra ~886M** (`datasets/benchmarks/marvin/marving-info.txt:31-45`).
 
 La mejor corrida principal versionada hoy por `mine-rs` en Marvin queda en `664,161,466.99`, con clasificación explícita `exploratory-local`, y por tanto está aproximadamente **25.0% por debajo** de la referencia PCPSP pública (`datasets/benchmarks/outputs/multi-mine-scheduling-report.json:249-253`, `datasets/benchmarks/outputs/multi-mine-scheduling-report.json:1383-1438`). El problema ya no es solo "mejorar un heurístico": el repo todavía mezcla **gap algorítmico real** con **gap de comparabilidad bibliográfica/protocolar**.
 
 ## Qué valor debemos perseguir
 
-### Marvin: referencias públicas correctas
+Para los números vivos por instancia × formulación, remitirse a `literature-parity.md`. Este documento solo fija la lectura diagnóstica que explica **por qué** esos números importan:
 
-| Formulación | Tipo | Valor oficial | Fuente |
-| --- | --- | ---: | --- |
-| UPIT | pit final | 1,415,655,436 | `datasets/benchmarks/marvin/marving-info.txt:27-30` |
-| CPIT | schedule factible 1 destino | 820,726,048 | `datasets/benchmarks/marvin/marving-info.txt:31-34` |
-| LP-CPIT | relajación, no factible | 863,916,131 | `datasets/benchmarks/marvin/marving-info.txt:35-38` |
-| PCPSP | schedule factible 2 destinos | 885,968,070 | `datasets/benchmarks/marvin/marving-info.txt:39-42` |
-| LP-PCPSP | relajación, no factible | 911,704,665 | `datasets/benchmarks/marvin/marving-info.txt:43-46` |
-
-Conclusión: el recuerdo de "~800M" probablemente viene de **CPIT** o de resultados históricos previos a las mejores soluciones hoy versionadas, pero **no** es el target correcto si se quiere comparar el pipeline actual de Marvin PCPSP.
-
-### McLaughlin: la variante también importa
-
-| Instancia | PCPSP oficial | Observación |
-| --- | ---: | --- |
-| `mclaughlin-limit` | 1,321,662,551 | Es la variante alineable con la literatura MineLib más común (`datasets/benchmarks/mclaughlin-limit/mclaughlin-limit-info.txt:37-44`). |
-| `mclaughlin-full` | 1,510,126,435 | No es la misma variante que `mclaughlin-limit`; no debe compararse como si fuera la misma tabla de paper (`datasets/benchmarks/mclaughlin/mclaughlin-info.txt:35-42`). |
-
-## Estado actual del repo
-
-### Marvin
-
-| Artefacto | Valor descontado | Lectura correcta |
-| --- | ---: | --- |
-| Referencia PCPSP MineLib | 885,968,061.49 | Mejor schedule factible público cargado en el repo (`datasets/benchmarks/outputs/multi-mine-scheduling-report.json:530-530`). |
-| Baseline `cpit-period-routed` | 820,726,047.95 | Replica el orden temporal CPIT con ruteo posterior; explica por qué "~800M" sí aparece en Marvin, pero no es la referencia PCPSP (`datasets/benchmarks/outputs/multi-mine-scheduling-report.json:620-633`). |
-| Candidato principal `ready_frontier` | 664,161,466.99 | Mejor candidato principal hoy versionado; sigue `exploratory-local` (`datasets/benchmarks/outputs/multi-mine-scheduling-report.json:1383-1403`). |
-| Candidato LP/BZ round-repair | 661,177,100.28 | La ruta LP/BZ todavía no supera al candidato principal (`datasets/benchmarks/outputs/multi-mine-scheduling-report.json:1143-1157`). |
-| Bound LP/BZ en sidecar | 899,374,039.13 | Señal de que el gap entero es grande, pero el bound sigue viniendo de una ruta benchmark-side parcial (`datasets/benchmarks/outputs/multi-mine-scheduling-report.json:1013-1023`). |
-
-### McLaughlin
-
-| Dataset | Referencia PCPSP | Candidato repo | Brecha observable |
-| --- | ---: | ---: | --- |
-| `mclaughlin-limit` | 1,321,662,545.35 | 503,540,970.31 | Muy lejos y todavía sin LP/BZ sidecar (`datasets/benchmarks/outputs/multi-mine-scheduling-report.json:1716-1778`, `datasets/benchmarks/outputs/multi-mine-scheduling-report.json:1908-1928`). |
-| `mclaughlin-full` | 1,510,126,434.32 | 502,994,681.27 | Además de la brecha, la variante `full` no es comparable con la literatura `limit` (`datasets/benchmarks/outputs/multi-mine-scheduling-report.json:2149-2154`, `datasets/benchmarks/outputs/multi-mine-scheduling-report.json:2248-2305`, `datasets/benchmarks/outputs/multi-mine-scheduling-report.json:2436-2456`). |
+- En **Marvin**, el recuerdo de "~800M" corresponde a **CPIT** y no al target **PCPSP**; para PCPSP la referencia comparable está en la zona de **~886M**.
+- En **McLaughlin**, la variante **`mclaughlin-limit`** es la comparable con la literatura MineLib más común; **`mclaughlin-full`** debe seguir leyéndose como stress benchmark local y no como fila equivalente de la tabla bibliográfica.
+- Los candidatos, bounds y gaps exactos del repo no deben duplicarse aquí: la respuesta canónica está en la tabla de paridad validada por test.
 
 ## Diagnóstico profundo
 

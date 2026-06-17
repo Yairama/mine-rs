@@ -15,7 +15,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use benchmark_blocks_support::read_benchmark_blocks;
-use mine_sdk::{
+use mine_sdk::planning::{
     BlockPrecedenceTemplate, PrecedenceOffset, build_block_precedence_graph,
     read_precedence_graph_json, write_precedence_graph_json,
 };

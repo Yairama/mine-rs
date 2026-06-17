@@ -1,4 +1,22 @@
 //! Fachada publica Rust para las capacidades del workspace `mine-rs`.
+//!
+//! La raiz `mine_sdk` expone la superficie alpha recomendada. Para nuevo codigo
+//! Rust, los modulos por dominio son el camino recomendado:
+//!
+//! - `mine_sdk::core` para ids, grilla, metadata y schema.
+//! - `mine_sdk::blockmodel` para `BlockModel`, analytics y estimacion.
+//! - `mine_sdk::io` para CSV, Parquet, Arrow y exportes.
+//! - `mine_sdk::validation` para `ValidationReport` y validadores.
+//! - `mine_sdk::economics` para valuacion, cashflow y riesgo.
+//! - `mine_sdk::planning` para precedencias, fases y schedules.
+//! - `mine_sdk::reblock` para reblocking y reconciliacion.
+//! - `mine_sdk::experimental` para prototipos opt-in.
+//!
+//! Nota: nombres como `ExperimentalVariogram` siguen en la raiz recomendada
+//! porque "experimental" alli es terminologia geostatistica, no una marca de
+//! estabilidad del SDK.
+
+pub mod experimental;
 
 /// Reexports del dominio de block model.
 pub use mine_blockmodel as blockmodel;
@@ -110,22 +128,20 @@ pub use planning::{
     PcpspToposortOptions, PcpspToposortProblem, PcpspToposortSchedule, PhaseAssignment,
     PhaseDesign, PhaseTaggingReport, PitShell, PitShellMetrics, PitShellSet, PrecedenceEdge,
     PrecedenceGraph, PrecedenceGraphComparisonReport, PrecedenceNode, PrecedenceOffset,
-    PushbackGenerationRules, PushbackPlan, PushbackPrototype, PushbackPrototypeReport,
     ScenarioConstraints, ScenarioPeriod, ScenarioRules, Schedule, ScheduleConstraints,
     ScheduleDestinationCapacity, ScheduleDestinationId, ScheduleEntry, SchedulePeriodSummary,
     ScheduleStockpileCapacity, ScheduleStockpileId, ScheduleViolation, ScheduleViolationCode,
     SchedulingObjectiveTerm, SchedulingPeriod, SchedulingProblem, SchedulingResourceBound,
     SchedulingResourceId, SchedulingResourceRequirement, SchedulingUnit, SchedulingUnitId,
     SlopeAngleRule, SmallSchedulingAssignment, SmallSchedulingPeriodSummary,
-    SmallSchedulingResourceUsage, SmallSchedulingSolution, UpitPrototypeReport, UplSolverResult,
-    VariableSlopeTemplate, apply_long_term_stockpile_policy, assign_benches,
-    assign_phases_from_column, build_aggregated_long_term_schedule, build_block_precedence_graph,
-    build_max_closure_graph, build_pushback_prototype, build_ready_frontier_long_term_schedule,
-    build_ready_frontier_schedule, build_schedule, build_target_period_seeded_long_term_schedule,
-    build_target_period_seeded_schedule, build_target_period_windowed_long_term_schedule,
-    build_target_period_windowed_schedule, build_upit_prototype, compare_block_memberships,
-    compare_named_numeric_metrics, compare_precedence_graphs, compare_upit_reports,
-    compute_pcpsp_lagrangian_bound, compute_pit_shell_metrics,
+    SmallSchedulingResourceUsage, SmallSchedulingSolution, UplSolverResult, VariableSlopeTemplate,
+    apply_long_term_stockpile_policy, assign_benches, assign_phases_from_column,
+    build_aggregated_long_term_schedule, build_block_precedence_graph, build_max_closure_graph,
+    build_ready_frontier_long_term_schedule, build_ready_frontier_schedule, build_schedule,
+    build_target_period_seeded_long_term_schedule, build_target_period_seeded_schedule,
+    build_target_period_windowed_long_term_schedule, build_target_period_windowed_schedule,
+    compare_block_memberships, compare_named_numeric_metrics, compare_precedence_graphs,
+    compare_upit_reports, compute_pcpsp_lagrangian_bound, compute_pit_shell_metrics,
     derive_phase_design_from_nested_shells, derive_phase_design_from_nested_shells_from_map,
     derive_precedence_template_from_slope, derive_pushbacks_from_nested_shells,
     derive_pushbacks_from_nested_shells_from_map, evaluate_long_term_schedule_material_flows,
@@ -137,13 +153,27 @@ pub use planning::{
     uniform_revenue_factors, validate_vertical_advance, verify_closure, write_pit_shell_set_json,
     write_precedence_graph_json,
 };
+#[deprecated(
+    since = "0.1.0",
+    note = "Use mine_sdk::experimental::{PushbackGenerationRules, PushbackPlan, PushbackPrototype, PushbackPrototypeReport, UpitPrototypeReport, build_pushback_prototype, build_upit_prototype}."
+)]
+pub use planning::{
+    PushbackGenerationRules, PushbackPlan, PushbackPrototype, PushbackPrototypeReport,
+    UpitPrototypeReport, build_pushback_prototype, build_upit_prototype,
+};
+#[deprecated(
+    since = "0.1.0",
+    note = "Use mine_sdk::experimental::{AdaptiveReblockPrototype, AdaptiveResolutionStrategy, AdaptiveZonePrototype, AdaptiveZoneRule, build_adaptive_reblock_prototype}."
+)]
 pub use reblock::{
     AdaptiveReblockPrototype, AdaptiveResolutionStrategy, AdaptiveZonePrototype, AdaptiveZoneRule,
+    build_adaptive_reblock_prototype,
+};
+pub use reblock::{
     AggregationOperation, AggregationRule, AggregationRules, CustomAggregationSpec,
     DistributionOperation, DistributionRule, DistributionRules, ReconciliationBlockCount,
     ReconciliationMetric, ReconciliationReport, ReconciliationTolerances, WeightedAggregation,
-    aggregate_weighted_column, aggregate_weighted_values, build_adaptive_reblock_prototype,
-    reconcile_models, subblock, superblock,
+    aggregate_weighted_column, aggregate_weighted_values, reconcile_models, subblock, superblock,
 };
 pub use validation::{
     BlockModelValidationExt, ValidationIssue, ValidationIssueCode, ValidationOptions,
@@ -160,6 +190,45 @@ pub fn public_layers() -> [LayerDescriptor; 2] {
         LayerDescriptor {
             name: "mine-sdk",
             responsibility: "API publica Rust que reexporta crates internos.",
+        },
+    ]
+}
+
+/// Enumera los módulos recomendados para nuevos imports de consumidores Rust.
+#[must_use]
+pub const fn recommended_modules() -> [LayerDescriptor; 8] {
+    [
+        LayerDescriptor {
+            name: "mine_sdk::core",
+            responsibility: "Tipos base, ids, metadata, grillas y schema.",
+        },
+        LayerDescriptor {
+            name: "mine_sdk::blockmodel",
+            responsibility: "BlockModel, analytics, estimacion y soporte espacial.",
+        },
+        LayerDescriptor {
+            name: "mine_sdk::io",
+            responsibility: "IO abierto con CSV, Parquet, Arrow y exportes.",
+        },
+        LayerDescriptor {
+            name: "mine_sdk::validation",
+            responsibility: "Validacion estructurada y reportes auditables.",
+        },
+        LayerDescriptor {
+            name: "mine_sdk::economics",
+            responsibility: "Valuacion, cashflow, stockpiles y riesgo.",
+        },
+        LayerDescriptor {
+            name: "mine_sdk::planning",
+            responsibility: "Precedencias, fases, shells y scheduling.",
+        },
+        LayerDescriptor {
+            name: "mine_sdk::reblock",
+            responsibility: "Reblocking, subblocking, agregacion y reconciliacion.",
+        },
+        LayerDescriptor {
+            name: "mine_sdk::experimental",
+            responsibility: "Prototipos opt-in fuera del camino Rust recomendado.",
         },
     ]
 }

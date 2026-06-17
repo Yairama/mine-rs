@@ -10,6 +10,7 @@
 
 mod benchmark_blocks_support;
 mod benchmark_path_policy;
+mod benchmark_runtime_telemetry;
 mod lp_bz_adapter;
 mod lp_bz_bound;
 mod lp_bz_lp_kernel;
@@ -31,6 +32,10 @@ use std::path::PathBuf;
 
 use benchmark_blocks_support::read_benchmark_blocks;
 use benchmark_path_policy::BenchmarkPathPolicy;
+use benchmark_runtime_telemetry::{
+    RUNTIME_TELEMETRY_COMPARABILITY_NOTE, RUNTIME_TELEMETRY_CONTRACT_VERSION, RuntimeTelemetry,
+    StageTimer,
+};
 use lp_bz_bound::{LpBzBoundArtifact, LpBzInputArtifact, compute_lp_bz_bound_artifacts};
 use lp_bz_lp_kernel::{
     LpBzCutSolveDiagnostics, LpBzCutTighteningStrategy, LpBzLpKernelArtifact,
@@ -38,13 +43,13 @@ use lp_bz_lp_kernel::{
     LpBzLpSolveStatus, LpBzPrecedenceCoverageCompleteness, LpBzPrecedenceEnforcementStrategy,
     LpBzPrecedenceSolveDiagnostics, build_lp_bz_lp_kernel_artifact, solve_lp_bz_lp_kernel_artifact,
 };
-use lp_bz_runtime_budget::{
-    LpBzLocalOptimizerRuntimeBudgetContract, build_lp_bz_local_optimizer_runtime_budget_contract,
-    validate_lp_bz_local_optimizer_runtime_budget_contract,
-};
 use lp_bz_rounder::{
     build_target_period_seeded_schedule_from_lp_round_repair_v6,
     build_target_period_seeded_schedule_from_lp_round_repair_v6_focused,
+};
+use lp_bz_runtime_budget::{
+    LpBzLocalOptimizerRuntimeBudgetContract, build_lp_bz_local_optimizer_runtime_budget_contract,
+    validate_lp_bz_local_optimizer_runtime_budget_contract,
 };
 use marvin_support::{
     MarvinScheduleAssignment, MarvinScheduleProblem, MarvinScheduleSolution,
@@ -243,6 +248,21 @@ const MARVIN_BENCHMARK_FULL_REPORT_FILE: &str = "comparison-report.json";
 const MARVIN_BENCHMARK_FOCUSED_MR187_REPORT_FILE: &str = "mr187-focused-refresh-report.json";
 const MARVIN_BENCHMARK_FULL_MODE_LABEL: &str = "full";
 const MARVIN_BENCHMARK_FOCUSED_MR187_MODE_LABEL: &str = "focused-mr187";
+const FULL_REPORT_RUNTIME_STAGE_LABELS: &[&str] = &[
+    "read-reference-inputs",
+    "compare-reference-precedence-and-upit",
+    "build-benchmark-candidates-and-sweeps",
+    "build-lp-bz-sidecar",
+    "assemble-report",
+];
+const FOCUSED_MR187_REPORT_RUNTIME_STAGE_LABELS: &[&str] = &[
+    "read-reference-inputs",
+    "build-promoted-lp-bz-candidate",
+    "build-pushback-bench-localized-cut",
+    "build-v9-local-front-band-experiments",
+    "build-lp-bz-sidecar",
+    "assemble-report",
+];
 #[derive(Debug, Serialize)]
 struct MarvinBenchmarkOutput {
     dataset_dir: String,
@@ -319,6 +339,7 @@ struct MarvinBenchmarkOutput {
     mine_rs_vs_pcpsp_metric_comparison: NumericMetricComparisonReport,
     mine_rs_vs_pcpsp_membership_comparison: CompactPeriodMembershipComparison,
     mine_rs_vs_pcpsp_period_metric_comparison: NumericMetricComparisonReport,
+    runtime_telemetry: RuntimeTelemetry,
     assumptions: Vec<String>,
     limitations: Vec<String>,
 }
@@ -352,6 +373,7 @@ struct FocusedMr187RefreshOutput {
     selected_block_provenance_chain: Vec<String>,
     comparison_classification: String,
     comparability_gaps: Vec<String>,
+    runtime_telemetry: RuntimeTelemetry,
     assumptions: Vec<String>,
     limitations: Vec<String>,
 }
@@ -1042,6 +1064,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    let mut runtime_timer = StageTimer::start();
     let model = read_benchmark_blocks(&blocks_path, "marvin")?;
     let reference_prec = read_marvin_precedence_graph(&prec_path, &model)?;
     let reference_upit_membership = read_marvin_upit_solution(&upit_solution_path, &model)?;
@@ -1058,6 +1081,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pcpsp_summary = summarize_marvin_schedule_solution(&pcpsp_problem, &pcpsp_solution)?;
     let lp_cpit_summary = summarize_marvin_schedule_solution(&cpit_problem, &lp_cpit_solution)?;
     let lp_pcpsp_summary = summarize_marvin_schedule_solution(&pcpsp_problem, &lp_pcpsp_solution)?;
+    runtime_timer.record_stage(FULL_REPORT_RUNTIME_STAGE_LABELS[0]);
 
     let template = marvin_slope_template()?;
     let candidate_prec = build_block_precedence_graph(&model, &template)?;
@@ -1185,6 +1209,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ),
         ]),
     );
+    runtime_timer.record_stage(FULL_REPORT_RUNTIME_STAGE_LABELS[1]);
     let mine_rs_end_to_end =
         build_mine_rs_end_to_end_artifacts(&model, &reference_prec, &pcpsp_problem)?;
     let tonnage_by_linear_index = build_linear_index_float_lookup(&model, &tonnage_column)?;
@@ -2183,6 +2208,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?,
         &BTreeMap::new(),
     );
+    runtime_timer.record_stage(FULL_REPORT_RUNTIME_STAGE_LABELS[2]);
     let lp_bz_integer_candidate_artifact = build_baseline_summary(
         "lp-bz-round-repair-local-front-seeded",
         lp_bz_benchmark.phase_plan.phase_count,
@@ -2223,6 +2249,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         pcpsp_summary.discounted_objective,
         candidate_pcpsp_summary.discounted_objective,
     );
+    runtime_timer.record_stage(FULL_REPORT_RUNTIME_STAGE_LABELS[3]);
+    let runtime_telemetry = finish_report_runtime_telemetry(
+        runtime_timer,
+        FULL_REPORT_RUNTIME_STAGE_LABELS[4],
+        FULL_REPORT_RUNTIME_STAGE_LABELS,
+        MARVIN_BENCHMARK_FULL_REPORT_FILE,
+    )?;
 
     let output = MarvinBenchmarkOutput {
         dataset_dir: relative_or_display(&dataset_dir, &repo_root),
@@ -2463,6 +2496,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         mine_rs_vs_pcpsp_metric_comparison,
         mine_rs_vs_pcpsp_membership_comparison,
         mine_rs_vs_pcpsp_period_metric_comparison,
+        runtime_telemetry,
         assumptions: vec![
             "marving-info.txt was used to confirm that field_4 is tonnage and field_7 is proc_profit ($/ton), and that mine_cost = 0.9 $/ton.".to_owned(),
             "The candidate precedence template uses the 17-offset Marvin slope pattern (45°/8-niveles): 5 cross at dk=1, 4 diagonal corners at dk=3, 8 near-circle at dk=5.".to_owned(),
@@ -2578,6 +2612,7 @@ fn build_focused_mr187_refresh_output(
     pcpsp_solution_path: &Path,
     lp_pcpsp_solution_path: &Path,
 ) -> Result<FocusedMr187RefreshOutput, MineError> {
+    let mut runtime_timer = StageTimer::start();
     let model = read_benchmark_blocks(blocks_path, "marvin")?;
     let reference_prec = read_marvin_precedence_graph(prec_path, &model)?;
     let pcpsp_problem = read_marvin_pcpsp_problem(pcpsp_problem_path, &model)?;
@@ -2590,6 +2625,7 @@ fn build_focused_mr187_refresh_output(
     let base_phase_plan = build_mine_rs_end_to_end_phase_plan(&model, &reference_prec)?;
     let tonnage_by_linear_index = build_linear_index_float_lookup(&model, &tonnage_column)?;
     let lp_representative_period_by_block = representative_period_by_block(&lp_pcpsp_solution);
+    runtime_timer.record_stage(FOCUSED_MR187_REPORT_RUNTIME_STAGE_LABELS[0]);
     let lp_bz_benchmark = build_lp_bz_access_progression_artifacts(
         &model,
         &base_phase_plan,
@@ -2624,6 +2660,7 @@ fn build_focused_mr187_refresh_output(
         &lp_bz_round_repair_summary,
         &lp_bz_round_repair_solution,
     );
+    runtime_timer.record_stage(FOCUSED_MR187_REPORT_RUNTIME_STAGE_LABELS[1]);
     let lp_bz_pushback_bench_localized_cut_experiment =
         build_focused_pushback_bench_localized_cut_experiment(
             &model,
@@ -2639,6 +2676,7 @@ fn build_focused_mr187_refresh_output(
             MARVIN_SELECTED_BLOCK_SOURCE,
             &lp_bz_integer_candidate_artifact,
         )?;
+    runtime_timer.record_stage(FOCUSED_MR187_REPORT_RUNTIME_STAGE_LABELS[2]);
     let mut lp_bz_v9_local_front_band_experiment = None::<FocusedLpBzVariantExperiment>;
     let mut lp_bz_v9_local_front_band_width_sweep = Vec::new();
     for period_band_width in LP_BZ_V9_LOCAL_FRONT_PERIOD_BAND_SWEEP_WIDTHS {
@@ -2702,6 +2740,7 @@ fn build_focused_mr187_refresh_output(
             build_lp_bz_local_front_band_link_policy_sweep_entry(&experiment),
         );
     }
+    runtime_timer.record_stage(FOCUSED_MR187_REPORT_RUNTIME_STAGE_LABELS[3]);
     let lp_bz_bound_artifacts = compute_lp_bz_bound_artifacts(
         &pcpsp_problem,
         &lp_pcpsp_solution,
@@ -2743,6 +2782,13 @@ fn build_focused_mr187_refresh_output(
     let comparability_gaps = build_mr187_refresh_comparability_gaps(
         &lp_bz_pushback_bench_localized_cut_experiment.unit_family_traceability,
     );
+    runtime_timer.record_stage(FOCUSED_MR187_REPORT_RUNTIME_STAGE_LABELS[4]);
+    let runtime_telemetry = finish_report_runtime_telemetry(
+        runtime_timer,
+        FOCUSED_MR187_REPORT_RUNTIME_STAGE_LABELS[5],
+        FOCUSED_MR187_REPORT_RUNTIME_STAGE_LABELS,
+        MARVIN_BENCHMARK_FOCUSED_MR187_REPORT_FILE,
+    )?;
     let output = FocusedMr187RefreshOutput {
         report_mode: MarvinBenchmarkMode::FocusedMr187
             .report_mode_label()
@@ -2789,6 +2835,7 @@ fn build_focused_mr187_refresh_output(
         lp_bz_v9_local_front_band_link_policy_sweep,
         comparison_classification: "exploratory-local".to_owned(),
         comparability_gaps,
+        runtime_telemetry,
         assumptions: build_mr187_refresh_assumptions(),
         limitations: build_mr187_refresh_limitations(),
     };
@@ -2967,6 +3014,11 @@ fn build_skipped_focused_lp_bz_lp_solve_artifact(
 fn validate_focused_mr187_refresh_output(
     output: &FocusedMr187RefreshOutput,
 ) -> Result<(), MineError> {
+    validate_report_runtime_telemetry_contract(
+        &output.runtime_telemetry,
+        FOCUSED_MR187_REPORT_RUNTIME_STAGE_LABELS,
+        MARVIN_BENCHMARK_FOCUSED_MR187_REPORT_FILE,
+    )?;
     validate_lp_bz_rounder_v6_local_optimizer_diagnostics(
         &output.lp_bz_rounder_v6_local_optimizer_diagnostics,
     )?;
@@ -3067,6 +3119,66 @@ fn validate_focused_mr187_refresh_output(
     {
         return Err(MineError::validation(format!(
             "Focused MR-187 refresh provenance chain must stay aligned with `{FOCUSED_MR187_INPUT_AGGREGATION_PROVENANCE_CHAIN}`."
+        )));
+    }
+    Ok(())
+}
+
+fn finish_report_runtime_telemetry(
+    mut timer: StageTimer,
+    final_stage: &str,
+    expected_stages: &[&str],
+    report_label: &str,
+) -> Result<RuntimeTelemetry, MineError> {
+    timer.record_stage(final_stage);
+    let telemetry = timer.finish();
+    validate_report_runtime_telemetry_contract(&telemetry, expected_stages, report_label)?;
+    Ok(telemetry)
+}
+
+fn validate_report_runtime_telemetry_contract(
+    telemetry: &RuntimeTelemetry,
+    expected_stages: &[&str],
+    report_label: &str,
+) -> Result<(), MineError> {
+    if telemetry.contract_version != RUNTIME_TELEMETRY_CONTRACT_VERSION {
+        return Err(MineError::validation(format!(
+            "Report `{report_label}` must reuse runtime telemetry contract version `{RUNTIME_TELEMETRY_CONTRACT_VERSION}`."
+        )));
+    }
+    if telemetry.comparability_note != RUNTIME_TELEMETRY_COMPARABILITY_NOTE {
+        return Err(MineError::validation(format!(
+            "Report `{report_label}` must reuse the shared runtime telemetry comparability note."
+        )));
+    }
+    if telemetry.limitations.is_empty() {
+        return Err(MineError::validation(format!(
+            "Report `{report_label}` must preserve the shared runtime telemetry limitations."
+        )));
+    }
+    let stage_labels = telemetry
+        .stage_timings
+        .iter()
+        .map(|timing| timing.stage.as_str())
+        .collect::<Vec<_>>();
+    if stage_labels != expected_stages {
+        return Err(MineError::validation(format!(
+            "Report `{report_label}` must expose runtime stage labels {:?}, received {:?}.",
+            expected_stages, stage_labels
+        )));
+    }
+    if telemetry
+        .stage_timings
+        .iter()
+        .any(|timing| !timing.wall_clock_ms.is_finite() || timing.wall_clock_ms < 0.0)
+    {
+        return Err(MineError::validation(format!(
+            "Report `{report_label}` must serialize only finite non-negative wall-clock stage timings."
+        )));
+    }
+    if !telemetry.total_wall_clock_ms.is_finite() || telemetry.total_wall_clock_ms < 0.0 {
+        return Err(MineError::validation(format!(
+            "Report `{report_label}` must serialize a finite non-negative total wall-clock runtime."
         )));
     }
     Ok(())
@@ -3474,7 +3586,9 @@ fn validate_lp_bz_rounder_v6_local_optimizer_diagnostics(
         &diagnostics.local_optimizer_runtime_budget_contract,
     )
     .map_err(MineError::validation)?;
-    if diagnostics.local_optimizer_runtime_budget_contract.strategy_label
+    if diagnostics
+        .local_optimizer_runtime_budget_contract
+        .strategy_label
         != diagnostics.local_optimizer_strategy_label
         || diagnostics
             .local_optimizer_runtime_budget_contract
@@ -3490,9 +3604,13 @@ fn validate_lp_bz_rounder_v6_local_optimizer_diagnostics(
                 .to_owned(),
         ));
     }
-    if diagnostics.local_optimizer_runtime_budget_contract.max_iteration_count
+    if diagnostics
+        .local_optimizer_runtime_budget_contract
+        .max_iteration_count
         != diagnostics.local_optimizer_max_iteration_count
-        || diagnostics.local_optimizer_runtime_budget_contract.max_iteration_count
+        || diagnostics
+            .local_optimizer_runtime_budget_contract
+            .max_iteration_count
             != diagnostics.local_optimizer_effective_iteration_budget
     {
         return Err(MineError::validation(
@@ -8948,6 +9066,7 @@ fn build_baseline_summary(
 #[cfg(test)]
 mod tests {
     use super::{
+        FOCUSED_MR187_REPORT_RUNTIME_STAGE_LABELS, FULL_REPORT_RUNTIME_STAGE_LABELS,
         LP_BZ_KERNEL_REPORT_SAMPLE_LIMIT, LP_BZ_UNIT_GRANULARITY_LABEL,
         LP_BZ_V9_LOCAL_FRONT_PERIOD_BAND_WIDTH, LpBzBandPredecessorLinkPolicy, LpBzGapMetrics,
         LpBzPeriodBandRefinementDiagnostics, MARVIN_BENCHMARK_FOCUSED_MR187_MODE_LABEL,
@@ -8963,20 +9082,22 @@ mod tests {
         build_mine_rs_end_to_end_artifacts, build_mr187_refresh_assumptions,
         build_mr187_refresh_comparability_gaps, build_mr187_refresh_limitations,
         build_promoted_pushback_bench_localized_cut_unit_family_traceability,
-        compact_lp_bz_lp_kernel_artifact, front_progression_contract_label, lp_bz_lp_kernel,
-        marvin_support, parse_marvin_benchmark_cli_args,
-        partition_block_indices_by_cumulative_tonnage_targets, partition_block_indices_by_tonnage,
-        representative_period_by_block, select_localized_planar_predecessors,
-        split_phase_plan_by_representative_period_bands,
+        compact_lp_bz_lp_kernel_artifact, finish_report_runtime_telemetry,
+        front_progression_contract_label, lp_bz_lp_kernel, marvin_support,
+        parse_marvin_benchmark_cli_args, partition_block_indices_by_cumulative_tonnage_targets,
+        partition_block_indices_by_tonnage, representative_period_by_block,
+        select_localized_planar_predecessors, split_phase_plan_by_representative_period_bands,
         split_phase_plan_by_representative_period_bands_with_link_policy,
         split_phase_plan_by_representative_period_quantiles,
-        validate_lp_bz_rounder_v6_local_optimizer_diagnostics,
-        validate_lp_bz_period_band_refinement_diagnostics, validate_mr187_refresh_contract,
+        validate_lp_bz_period_band_refinement_diagnostics,
+        validate_lp_bz_rounder_v6_local_optimizer_diagnostics, validate_mr187_refresh_contract,
         validate_pushback_bench_localized_cut_calibration_sweep,
-        validate_pushback_bench_localized_cut_refinement_diagnostics, write_pretty_json,
+        validate_pushback_bench_localized_cut_refinement_diagnostics,
+        validate_report_runtime_telemetry_contract, write_pretty_json,
     };
     use crate::benchmark_path_policy::BenchmarkPathPolicy;
-    use mine_sdk::{ColumnId, NestingAccessRules, PhaseDesign, PushbackPlan};
+    use crate::benchmark_runtime_telemetry::{RUNTIME_TELEMETRY_CONTRACT_VERSION, StageTimer};
+    use mine_sdk::{ColumnId, NestingAccessRules, PhaseDesign, experimental::PushbackPlan};
     use serde_json::json;
     use std::{collections::BTreeMap, path::PathBuf};
 
@@ -10235,6 +10356,66 @@ mod tests {
         assert_eq!(
             String::from_utf8(buffer).expect("serialized JSON should be UTF-8"),
             serde_json::to_string_pretty(&value).expect("pretty JSON should serialize"),
+        );
+    }
+
+    #[test]
+    fn comparison_report_runtime_telemetry_uses_shared_contract() {
+        let mut timer = StageTimer::start();
+        for stage in FULL_REPORT_RUNTIME_STAGE_LABELS
+            .iter()
+            .take(FULL_REPORT_RUNTIME_STAGE_LABELS.len() - 1)
+        {
+            timer.record_stage(*stage);
+        }
+
+        let telemetry = finish_report_runtime_telemetry(
+            timer,
+            FULL_REPORT_RUNTIME_STAGE_LABELS[FULL_REPORT_RUNTIME_STAGE_LABELS.len() - 1],
+            FULL_REPORT_RUNTIME_STAGE_LABELS,
+            MARVIN_BENCHMARK_FULL_REPORT_FILE,
+        )
+        .expect("comparison report telemetry should validate");
+
+        assert_eq!(
+            telemetry.contract_version,
+            RUNTIME_TELEMETRY_CONTRACT_VERSION
+        );
+        assert_eq!(
+            telemetry.stage_timings.len(),
+            FULL_REPORT_RUNTIME_STAGE_LABELS.len()
+        );
+        assert_eq!(
+            telemetry
+                .stage_timings
+                .iter()
+                .map(|timing| timing.stage.as_str())
+                .collect::<Vec<_>>(),
+            FULL_REPORT_RUNTIME_STAGE_LABELS
+        );
+    }
+
+    #[test]
+    fn focused_report_runtime_telemetry_rejects_wrong_stage_sequence() {
+        let mut timer = StageTimer::start();
+        timer.record_stage("read-reference-inputs");
+        timer.record_stage("wrong-stage");
+        for stage in FOCUSED_MR187_REPORT_RUNTIME_STAGE_LABELS.iter().skip(2) {
+            timer.record_stage(*stage);
+        }
+        let telemetry = timer.finish();
+
+        let error = validate_report_runtime_telemetry_contract(
+            &telemetry,
+            FOCUSED_MR187_REPORT_RUNTIME_STAGE_LABELS,
+            MARVIN_BENCHMARK_FOCUSED_MR187_REPORT_FILE,
+        )
+        .expect_err("focused MR-187 report telemetry should reject wrong stage sequence");
+
+        assert!(
+            error
+                .to_string()
+                .contains(MARVIN_BENCHMARK_FOCUSED_MR187_REPORT_FILE)
         );
     }
 

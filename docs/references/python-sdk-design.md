@@ -26,6 +26,79 @@ La capa Python debe separarse en dos piezas:
 
 La capa Python no debe depender de la capa agentica. Los agentes pueden depender de `miners`, pero `miners` no debe depender de agentes.
 
+## Contrato local soportado para instalación y validación
+
+Mientras el SDK siga en etapa `alpha`, el camino soportado para contributors debe ser único y reproducible:
+
+1. crear un `venv` limpio con Python `>=3.11`;
+2. instalar o actualizar `pip` y `maturin` dentro de ese mismo entorno;
+3. ejecutar `python -m maturin develop` desde la raíz del repo;
+4. validar con `python -m unittest discover -s tests -p "test_python_*.py"`.
+
+Este contrato local debe comunicar con claridad qué queda validado:
+
+- el módulo nativo de `mine-python` compila e instala correctamente;
+- el paquete público `miners` resuelve sus dependencias mínimas declaradas;
+- la superficie de import recomendada en la raíz `miners` sigue usable para el workflow público `load -> validate -> analyze -> export`, sin obligar al contributor a conocer rutas internas del repo.
+
+Si una contribución rompe este flujo, debe tratarse como regresión del SDK Python alpha aunque el core Rust siga compilando.
+
+Por ahora, este contrato **no** equivale a una política completa de wheels, publishing o releases, y tampoco adelanta la futura exposición de `miners.tools`.
+
+> La guía de UX y workflow de este documento se mantiene separada de la política de versionado y releases `0.x`; para esas garantías exactas, ver [`alpha-release-policy.md`](alpha-release-policy.md).
+
+## Workflow público recomendado hoy
+
+Mientras `mine-rs` siga consolidando su API `alpha`, la documentación pública debe promover un único camino ejecutable y reconocible:
+
+1. `load_from_pandas(...)` o `load_from_numpy(...)`
+2. `validate()`
+3. `summary()` / `basic_statistics()` / `grouped_statistics()` / `grade_tonnage()`
+4. `export_to_pandas(...)` o `export_to_numpy(...)`
+
+Este flujo prioriza discoverability y ergonomía notebook-first sin esconder supuestos mineros críticos. La carga y exportación viven como helpers públicos en `miners`; el análisis y la validación viven como métodos explícitos de `BlockModel`.
+
+Ejemplo actual con pandas:
+
+```python
+from miners import export_to_pandas, load_from_pandas
+
+model = load_from_pandas(
+    dataframe=df,
+    grid=grid,
+    schema=schema,
+    metadata={"source": "notebook"},
+)
+
+report = model.validate()
+summary = model.summary()
+stats = model.basic_statistics("tonnes")
+by_domain = model.grouped_statistics("domain", "tonnes")
+curve = model.grade_tonnage("cu", "tonnes", [0.3, 0.5, 0.7])
+exported = export_to_pandas(model, columns=["cu", "tonnes", "domain"])
+```
+
+Ejemplo actual con numpy:
+
+```python
+from miners import export_to_numpy, load_from_numpy
+
+model = load_from_numpy(
+    grid=grid,
+    schema=schema,
+    float_columns={"cu": cu, "tonnes": tonnes},
+    integer_columns={"bench": bench},
+)
+
+report = model.validate()
+curve = model.grade_tonnage("cu", "tonnes", [0.3, 0.5, 0.7])
+arrays = export_to_numpy(model, columns=["cu", "tonnes", "bench"])
+```
+
+La API fluent avanzada debe quedar en `miners.experimental`. Puede seguir existiendo para exploración opt-in, pero no debe presentarse como flujo recomendado ni mezclarse con la narrativa principal del SDK alpha.
+
+`README.md` debe tratar `examples/python/` como la entrada práctica para este workflow. Hoy ese pack ejecutable ya debe cubrir, como mínimo, los scripts `pandas_load_validate_analyze_export.py`, `numpy_load_validate_export.py` y `tools_workflow.py`, todos apoyados en la superficie pública actual (`miners` y `miners.tools`). Este documento conserva snippets cortos para explicar el diseño y deja explícitamente aparte cualquier API futura o experimental.
+
 ## Principios de API
 
 ### Clara antes que clever
@@ -56,10 +129,12 @@ Los objetos deben tener representaciones útiles:
 
 El SDK no debe inferir decisiones mineras críticas sin avisar. Si una columna de tonelaje, densidad o ley no está clara, la API debe pedirla explícitamente o emitir un error comprensible.
 
-## Estilo conceptual
+## APIs futuras o conceptuales
+
+Todo ejemplo que no corresponda al flujo público actual o que no esté respaldado por `examples/python/` debe marcarse como conceptual.
 
 ```python
-# Ejemplo conceptual: API no implementada todavía.
+# Ejemplo conceptual: no representa el camino público recomendado hoy.
 from miners import BlockModel, GridDefinition
 
 grid = GridDefinition(
@@ -85,14 +160,16 @@ report.raise_on_errors()
 pandas debe ser una vía natural de entrada y salida:
 
 ```python
-# Ejemplo conceptual.
-df = model.to_pandas(columns=["x", "y", "z", "cu", "tonnes"])
+# Ejemplo actual de la superficie recomendada.
+from miners import export_to_pandas, load_from_pandas
 
-model = BlockModel.from_pandas(
-    df,
+model = load_from_pandas(
+    dataframe=df,
     grid=grid,
-    coordinate_columns=("x", "y", "z"),
+    schema=schema,
 )
+
+df_exportado = export_to_pandas(model, columns=["cu", "tonnes"])
 ```
 
 Consideraciones:
@@ -105,6 +182,20 @@ Consideraciones:
 ## Interoperabilidad con numpy
 
 numpy es importante para operaciones numéricas y workflows científicos.
+
+Camino recomendado hoy:
+
+```python
+from miners import export_to_numpy, load_from_numpy
+
+model = load_from_numpy(
+    grid=grid,
+    schema=schema,
+    float_columns={"cu": cu, "tonnes": tonnes},
+)
+
+arrays = export_to_numpy(model, columns=["cu", "tonnes"])
+```
 
 Usos esperados:
 
@@ -129,17 +220,25 @@ Objetivos:
 
 ## Manejo de errores en Python
 
-Los errores Rust deben mapearse a excepciones Python específicas.
+Hoy la superficie pública de Python expone una sola excepción: `miners.MineError`.
 
-Ejemplos conceptuales:
+Ese contrato único debe mantenerse explícito en docs, ejemplos y type hints mientras no exista una jerarquía pública más fina. No debe documentarse una familia de excepciones separadas que hoy no existe.
 
-- `MineError`.
-- `SchemaError`.
-- `ValidationError`.
-- `GridError`.
-- `IoError`.
-- `ReblockError`.
-- `PlanningError`.
+Internamente, `MineError` preserva las categorías base del modelo de errores Rust. Para usuarios Python, eso significa que un mismo tipo público puede representar errores de:
+
+- `Io`
+- `Schema`
+- `Grid`
+- `Validation`
+- `Reblock`
+- `Economics`
+- `Planning`
+- `InvalidParameter`
+- `Numeric`
+
+La categoría concreta puede reflejarse en el mensaje y en el origen Rust del fallo, pero el tipo Python público sigue siendo uno solo.
+
+Las validaciones ordinarias del modelo siguen otro camino: `model.validate()` y helpers equivalentes devuelven `ValidationReport`. Los hallazgos normales de schema, grilla, cobertura o consistencia no deben describirse como la ruta principal de excepción; primero se inspeccionan en el reporte. Solo cuando una operación no puede ejecutarse correctamente por un error de contrato, input o estado, corresponde levantar `miners.MineError`.
 
 Los mensajes deben explicar:
 
@@ -210,6 +309,9 @@ Cuando el SDK exista, la documentación Python debería incluir:
 ## Criterios de aceptación de la capa Python
 
 - Una persona puede instalar el paquete y cargar un modelo simple.
+- El flujo soportado para contributors (`venv -> maturin develop -> unittest`) está documentado y es reproducible.
+- El workflow público recomendado (`load -> validate -> analyze -> export`) está documentado y distingue con claridad la superficie experimental en `miners.experimental`.
+- `README.md` y `examples/python/` funcionan juntos como entrypoint ejecutable para usuarios Python, sin mezclar ejemplos conceptuales con la superficie recomendada.
 - Los errores son comprensibles.
 - Los outputs pueden convertirse a pandas o JSON.
 - Las operaciones críticas delegan a Rust.

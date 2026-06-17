@@ -11,6 +11,8 @@
 mod benchmark_blocks_support;
 #[path = "../benchmark_path_policy.rs"]
 mod benchmark_path_policy;
+#[path = "../benchmark_runtime_telemetry.rs"]
+mod benchmark_runtime_telemetry;
 #[path = "../comparability_gap_support.rs"]
 mod comparability_gap_support;
 #[path = "../lp_bz_adapter.rs"]
@@ -42,6 +44,7 @@ use std::path::{Path, PathBuf};
 
 use benchmark_blocks_support::read_benchmark_blocks;
 use benchmark_path_policy::BenchmarkPathPolicy;
+use benchmark_runtime_telemetry::{RuntimeTelemetry, StageTimer};
 use comparability_gap_support::{
     ComparabilityGapSource, ComparabilityGapSummary, derive_comparability_gaps,
     validate_comparability_gap_contract_consistency,
@@ -890,6 +893,7 @@ struct MultiMineSchedulingReport {
     benchmark_contract_audit: BenchmarkContractAudit,
     diagnostics_schema: BenchmarkDiagnosticsSchema,
     datasets: Vec<DatasetSchedulingReport>,
+    runtime_telemetry: RuntimeTelemetry,
     limitations: Vec<String>,
 }
 
@@ -1415,26 +1419,47 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = path_policy.repo_root().to_path_buf();
     let cli = parse_multi_mine_scheduler_cli(&path_policy)?;
     let output_path = cli.output_path;
-    let datasets = DATASETS
-        .iter()
-        .map(|config| build_dataset_report(&repo_root, config))
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut timer = StageTimer::start();
+    let mut datasets = Vec::with_capacity(DATASETS.len());
+    for config in DATASETS.iter() {
+        datasets.push(build_dataset_report(&repo_root, config)?);
+        timer.record_stage(format!("build-dataset-report:{}", config.dataset_id));
+    }
 
-    let report = MultiMineSchedulingReport {
-        reference: "Espinoza et al. (2013) MineLib [R29] https://doi.org/10.1007/s10479-012-1258-3".to_owned(),
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    timer.record_stage("prepare-output-dir");
+    let report = build_multi_mine_scheduling_report(&output_path, datasets, timer.finish());
+    fs::write(&output_path, serde_json::to_string_pretty(&report)?)?;
+    println!("{}", output_path.display());
+    Ok(())
+}
+
+fn build_multi_mine_scheduling_report(
+    output_path: &Path,
+    datasets: Vec<DatasetSchedulingReport>,
+    runtime_telemetry: RuntimeTelemetry,
+) -> MultiMineSchedulingReport {
+    MultiMineSchedulingReport {
+        reference: "Espinoza et al. (2013) MineLib [R29] https://doi.org/10.1007/s10479-012-1258-3"
+            .to_owned(),
         output_path: output_path.display().to_string(),
         common_pipeline: vec![
             "read_benchmark_blocks(...)".to_owned(),
             "read_minelib_cpit_problem(...)".to_owned(),
             "read_minelib_cpit_solution(...)".to_owned(),
             "read_minelib_pcpsp_problem(...)".to_owned(),
-            "build dataset-aware phase plan (reference-period × bench or safe nested-shell primary)".to_owned(),
+            "build dataset-aware phase plan (reference-period × bench or safe nested-shell primary)"
+                .to_owned(),
             "build_scheduling_problem_from_minelib_problem(...)".to_owned(),
-            "solve_decomposed_scheduling_problem(DecomposedSchedulingConfig::ready_frontier(), ...)".to_owned(),
+            "solve_decomposed_scheduling_problem(DecomposedSchedulingConfig::ready_frontier(), ...)"
+                .to_owned(),
         ],
         benchmark_contract_audit: build_benchmark_contract_audit(),
         diagnostics_schema: build_benchmark_diagnostics_schema(),
         datasets,
+        runtime_telemetry,
         limitations: vec![
             "Marvin now reports an explicit benchmark-side selected-block contract (`marvin-paperlike-v2-shells-pushbacks-mining-cuts`) over the chain `shells -> pushbacks -> mining-cuts -> scheduling`, while `mclaughlin-limit` now reports the explicit open-UPIT shell contract `mclaughlin-limit-open-upit-shells-pushback-equivalent-bench-phases` and keeps `mclaughlin-full` on the staged CPIT fallback.".to_owned(),
             "The benchmark no longer depends uniformly on staged reference-period bands: Marvin uses bounded revenue/cost-aware shells, `mclaughlin-limit` uses open-UPIT shell × bench pushback-equivalent units, and only `mclaughlin-full` stays on the explicit `reference-period-bench` fallback until a comparable shell route exists.".to_owned(),
@@ -1445,14 +1470,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "When staged LP references exist, the report versions them explicitly; only LPpcpsp references are directly comparable to the PCPSP objective, while LPcpit remains a relaxation on the pit-limit problem.".to_owned(),
             "The report includes both mclaughlin-limit and mclaughlin-full; only the limit variant can be aligned directly to the most common MineLib scheduling tables in the literature, while `mclaughlin-full` is carried explicitly as a stress-only local variant.".to_owned(),
         ],
-    };
-
-    if let Some(parent) = output_path.parent() {
-        fs::create_dir_all(parent)?;
     }
-    fs::write(&output_path, serde_json::to_string_pretty(&report)?)?;
-    println!("{}", output_path.display());
-    Ok(())
 }
 
 fn build_dataset_report(
@@ -3933,7 +3951,7 @@ fn build_dataset_diagnostic_groups(
 
 #[cfg(test)]
 struct MineRsEndToEndArtifacts {
-    phase_plan: mine_sdk::PushbackPlan,
+    phase_plan: mine_sdk::experimental::PushbackPlan,
 }
 
 #[cfg(test)]
@@ -3958,7 +3976,7 @@ fn build_mine_rs_end_to_end_artifacts(
 #[cfg(test)]
 fn build_phase_scheduling_problem_from_marvin_problem(
     _model: &mine_sdk::BlockModel,
-    phase_plan: &mine_sdk::PushbackPlan,
+    phase_plan: &mine_sdk::experimental::PushbackPlan,
     marvin_problem: &MinelibScheduleProblem,
 ) -> Result<mine_sdk::SchedulingProblem, mine_sdk::MineError> {
     let resource_roles = BTreeMap::from([
@@ -4073,7 +4091,7 @@ fn build_relaxation_reference_summaries(
 fn build_localized_cut_sidecar_artifacts(
     config: &DatasetConfig,
     model: &mine_sdk::BlockModel,
-    base_phase_plan: &mine_sdk::PushbackPlan,
+    base_phase_plan: &mine_sdk::experimental::PushbackPlan,
     pcpsp_problem: &MinelibScheduleProblem,
     resource_roles: &BTreeMap<usize, MinelibResourceRole>,
     tonnage_column: &ColumnId,
@@ -4103,7 +4121,7 @@ fn build_localized_cut_sidecar_artifacts(
 fn build_marvin_lp_bz_sidecar_artifacts(
     config: &DatasetConfig,
     model: &mine_sdk::BlockModel,
-    base_phase_plan: &mine_sdk::PushbackPlan,
+    base_phase_plan: &mine_sdk::experimental::PushbackPlan,
     pcpsp_problem: &MinelibScheduleProblem,
     resource_roles: &BTreeMap<usize, MinelibResourceRole>,
     tonnage_column: &ColumnId,
@@ -4126,7 +4144,7 @@ fn build_mclaughlin_limit_benchmark_cut_refinement(
     config: &DatasetConfig,
     aggregation_strategy: &str,
     model: &mine_sdk::BlockModel,
-    base_phase_plan: &mine_sdk::PushbackPlan,
+    base_phase_plan: &mine_sdk::experimental::PushbackPlan,
     pcpsp_problem: &MinelibScheduleProblem,
     resource_roles: &BTreeMap<usize, MinelibResourceRole>,
     tonnage_column: &ColumnId,
@@ -4211,7 +4229,7 @@ fn build_lp_bz_baseline(
     references_dir: &Path,
     config: &DatasetConfig,
     model: &mine_sdk::BlockModel,
-    base_phase_plan: &mine_sdk::PushbackPlan,
+    base_phase_plan: &mine_sdk::experimental::PushbackPlan,
     pcpsp_problem: &MinelibScheduleProblem,
     pcpsp_solution: &MinelibScheduleSolution,
     resource_roles: &BTreeMap<usize, MinelibResourceRole>,
@@ -5871,6 +5889,7 @@ fn build_candidate_pcpsp_solution(
 
 #[cfg(test)]
 mod tests {
+    use super::benchmark_runtime_telemetry::{RUNTIME_TELEMETRY_CONTRACT_VERSION, StageTimer};
     use super::{
         DATASETS, LP_BZ_CUT_BUILDER_LABEL, LP_BZ_UNIT_GRANULARITY_LABEL,
         MARVIN_MR187_LOCAL_OPTIMIZER_SCAFFOLD_ROLE,
@@ -5884,7 +5903,7 @@ mod tests {
         build_linear_index_to_row_index, build_lp_bz_baseline,
         build_marvin_lp_bz_sidecar_artifacts, build_marvin_paperlike_pipeline_checklist,
         build_marvin_preferred_nested_shell_family_contract,
-        build_mclaughlin_limit_promotion_checklist,
+        build_mclaughlin_limit_promotion_checklist, build_multi_mine_scheduling_report,
         build_preferred_phase_plan_for_minelib_scheduling, build_primary_unit_family_traceability,
         build_promoted_pushback_bench_localized_cut_unit_family_traceability,
         parse_multi_mine_scheduler_cli_args, read_benchmark_blocks, read_minelib_cpit_solution,
@@ -5897,7 +5916,7 @@ mod tests {
     use crate::benchmark_path_policy::BenchmarkPathPolicy;
     use crate::minelib_scheduling_support::MARVIN_SELECTED_BLOCK_SOURCE;
     use crate::minelib_scheduling_support::REFERENCE_SELECTED_BLOCK_SOURCE;
-    use mine_sdk::{ColumnId, NestingAccessRules, PhaseDesign, PushbackPlan};
+    use mine_sdk::{ColumnId, NestingAccessRules, PhaseDesign, experimental::PushbackPlan};
     use std::collections::BTreeMap;
     use std::path::PathBuf;
 
@@ -8090,12 +8109,9 @@ mod tests {
                 .summary
                 .contains("92.000000 -> 93.000000 (+1.000000)")
         );
-        assert!(
-            probe
-                .budget_coverage_experiment
-                .summary
-                .contains("competitive probe used 3/32 (9.38%) with execution_state=`completed-within-budget`")
-        );
+        assert!(probe.budget_coverage_experiment.summary.contains(
+            "competitive probe used 3/32 (9.38%) with execution_state=`completed-within-budget`"
+        ));
         assert!(
             probe
                 .budget_coverage_experiment
@@ -9153,6 +9169,40 @@ mod tests {
                 .join("benchmarks")
                 .join("outputs")
                 .join("multi-mine-custom.json")
+        );
+    }
+
+    #[test]
+    fn multi_mine_report_serializes_shared_runtime_telemetry_contract() {
+        let mut timer = StageTimer::start();
+        timer.record_stage("build-dataset-report:marvin");
+        let report = build_multi_mine_scheduling_report(
+            &repo_root_path()
+                .join("datasets")
+                .join("benchmarks")
+                .join("outputs")
+                .join("multi-mine-scheduling-report.json"),
+            Vec::new(),
+            timer.finish(),
+        );
+
+        let json = serde_json::to_value(&report).expect("report should serialize");
+        let telemetry = json
+            .get("runtime_telemetry")
+            .expect("report should expose runtime_telemetry");
+
+        assert_eq!(
+            telemetry
+                .get("contract_version")
+                .and_then(serde_json::Value::as_str),
+            Some(RUNTIME_TELEMETRY_CONTRACT_VERSION)
+        );
+        assert_eq!(
+            telemetry
+                .get("stage_timings")
+                .and_then(serde_json::Value::as_array)
+                .map(Vec::len),
+            Some(1)
         );
     }
 

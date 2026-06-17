@@ -29,6 +29,8 @@ No debe presentarse todavía como:
 - plataforma agentica lista para producción;
 - scheduler industrial paper-comparable en todos sus frentes.
 
+> Para una lectura transversal de madurez por superficie, ver la matriz canónica en [`docs/references/maturity-matrix.md`](maturity-matrix.md). Este documento define el alcance `alpha`; la matriz complementa ese alcance con etiquetas de madurez repo-wide sin duplicar detalle aquí.
+
 ## Qué significa `alpha` en `mine-rs`
 
 En esta etapa `alpha` el proyecto sí promete:
@@ -45,6 +47,8 @@ En esta etapa `alpha` el proyecto no promete:
 - compatibilidad total entre cualquier release `0.x` sin notas de migración;
 - estabilidad uniforme en todos los módulos del repo;
 - cierre completo del roadmap de planning avanzado o benchmarking académico.
+
+> Las garantías exactas de versionado, compatibilidad y notas de release para esta etapa viven en [`alpha-release-policy.md`](alpha-release-policy.md).
 
 ## Superficie pública recomendada hoy
 
@@ -71,21 +75,49 @@ Debe considerarse parte del SDK alpha, salvo indicación explícita en contrario
 - tools deterministas reexportadas o conectadas al SDK;
 - primitives de planning ya formalizadas como contratos serializables, cuando se usen con claims de madurez acordes a su estado actual.
 
+Camino de imports recomendado para nuevo código Rust:
+
+- `mine_sdk::core`
+- `mine_sdk::blockmodel`
+- `mine_sdk::io`
+- `mine_sdk::validation`
+- `mine_sdk::economics`
+- `mine_sdk::planning`
+- `mine_sdk::reblock`
+- `mine_sdk::experimental` solo para prototipos opt-in
+
 ### 2. Python recomendado
 
 La entrada pública recomendada en Python es `miners`.
 
 Debe considerarse parte del SDK alpha, salvo indicación explícita en contrario, la superficie enfocada en:
 
-- construcción y lectura de `BlockModel`;
+- helpers públicos `load_from_pandas(...)`, `load_from_numpy(...)`, `export_to_pandas(...)` y `export_to_numpy(...)`;
+- construcción y lectura explícita de `BlockModel` cuando haga falta control más fino;
 - tipos core expuestos a Python;
+- la excepción pública `MineError` como contrato único actual para fallas operativas;
 - `summary()`;
 - `validate()` y `ValidationReport`;
 - interoperabilidad base con pandas y numpy ya soportada por el repo;
 - analytics públicos ya expuestos:
-  - estadísticas básicas
-  - grouped statistics
-  - grade-tonnage
+  - `basic_statistics()`
+  - `grouped_statistics()`
+  - `grade_tonnage()`
+
+Camino recomendado hoy para usuarios Python:
+
+1. `load_from_pandas(...)` o `load_from_numpy(...)`
+2. `validate()`
+3. `summary()` / `basic_statistics()` / `grouped_statistics()` / `grade_tonnage()`
+4. `export_to_pandas(...)` o `export_to_numpy(...)`
+
+Este flujo forma parte de la superficie pública recomendada del SDK alpha. Los wrappers fluent o encadenables no deben presentarse como camino principal.
+
+En manejo de errores, el contrato público actual también es deliberadamente simple: la raíz `miners` expone un único tipo de excepción pública, `MineError`. Ese tipo concentra categorías alineadas con Rust (`Io`, `Schema`, `Grid`, `Validation`, `Reblock`, `Economics`, `Planning`, `InvalidParameter`, `Numeric`), pero todavía no se presenta como una jerarquía Python separada.
+
+Los hallazgos ordinarios de validación no deben confundirse con esa ruta de excepciones. El camino normal para revisar problemas de calidad o consistencia del modelo sigue siendo `validate()` + `ValidationReport`; levantar `MineError` queda reservado para fallas que impiden completar correctamente la operación pedida.
+
+La evidencia ejecutable y notebook-first de este camino debe concentrarse en `examples/python/`, enlazada desde `README.md` como hub de descubrimiento. Hoy ese pack ya debe cubrir al menos `pandas_load_validate_analyze_export.py`, `numpy_load_validate_export.py` y `tools_workflow.py`, siempre usando la raíz `miners` o `miners.tools`; cualquier wrapper opt-in en `miners.experimental` queda fuera del camino principal salvo etiquetado experimental explícito.
 
 ### 3. Tools recomendadas
 
@@ -119,6 +151,13 @@ Si una capacidad existe pero todavía no debería tomarse como contrato de produ
 para usuario general, debe llamarse experimental de forma explícita.
 ```
 
+Aplicación concreta de esa regla en la etapa actual:
+
+- en Python, la raíz `miners` queda como superficie recomendada y las APIs opt-in viven en `miners.experimental`;
+- el wrapper `miners.experimental.experimental_workflow(...)` sigue disponible como exploración avanzada, pero no reemplaza el flujo público `load -> validate -> analyze -> export`;
+- en Rust, la raíz `mine_sdk` queda como superficie recomendada y los prototipos opt-in viven en `mine_sdk::experimental`;
+- `ExperimentalVariogram*` permanece en la superficie recomendada porque allí "experimental" es terminología geostatística del dominio, no un marcador de estabilidad del SDK.
+
 ## Superficie benchmark-side, research o interna
 
 Las siguientes piezas no deben presentarse como superficie principal del SDK alpha para usuarios generales:
@@ -138,6 +177,8 @@ Estas piezas sí son estratégicamente valiosas para el proyecto, pero su valor 
 - soporte interno para evolución del core.
 
 No deben confundirse con el camino principal de adopción del SDK alpha.
+
+La baseline pública de performance en [`public-performance-baseline.md`](public-performance-baseline.md) complementa esta separación desde el lado producto: define guardrails de runtime para workflows públicos del SDK `alpha`, pero no reemplaza los diagnósticos ni los artefactos benchmark-side usados para comparabilidad o investigación.
 
 ## Qué puede prometer hoy el proyecto
 
@@ -166,8 +207,10 @@ Hoy `mine-rs` no debe prometer:
 Camino recomendado hoy:
 
 1. `miners`
-2. examples y guías públicas
-3. validación, analytics, IO y reblocking base
+2. `examples/python/`
+3. `load_from_pandas(...)` o `load_from_numpy(...)`
+4. `validate()` + analytics públicos de `BlockModel`
+5. `export_to_pandas(...)` o `export_to_numpy(...)`
 
 ### Consumidor Rust
 

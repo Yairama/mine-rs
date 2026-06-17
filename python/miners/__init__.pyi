@@ -1,9 +1,20 @@
+"""Public typing contract for `miners`.
+
+`miners.MineError` is the single public exception raised for invalid inputs and
+binding/tool contract mismatches. Validation findings are returned through
+`ValidationReport` in the normal validation flow.
+"""
+
 from typing import Any
+
+from . import experimental
 
 class PythonBindingSurface:
     binding_layer: str
+    package_version: str
     sdk_layers: list[str]
     tool_layer: str
+    available_tools: list[str]
 
     def __repr__(self) -> str: ...
 
@@ -89,39 +100,13 @@ class ValidationIssue:
 
 
 class ValidationReport:
+    """Validation findings returned by explicit validation APIs."""
+
     def has_errors(self) -> bool: ...
     def error_count(self) -> int: ...
     def warning_count(self) -> int: ...
     def issues(self) -> list[ValidationIssue]: ...
     def to_json(self) -> str: ...
-
-
-class ExperimentalBlockModelResult:
-    validation: ValidationReport | None
-    summary: ModelSummary | None
-    basic_statistics: BasicStatistics | None
-    grouped_statistics: list[GroupedStatistics] | None
-    grade_tonnage: list[GradeTonnagePoint] | None
-    dataframe: Any | None
-
-
-class ExperimentalBlockModelWorkflow:
-    def __init__(self, model: BlockModel) -> None: ...
-    def validate(self, **kwargs: Any) -> ExperimentalBlockModelWorkflow: ...
-    def summary(self) -> ExperimentalBlockModelWorkflow: ...
-    def basic_statistics(
-        self, tonnage_column: str
-    ) -> ExperimentalBlockModelWorkflow: ...
-    def grouped_statistics(
-        self, group_by: str, tonnage_column: str
-    ) -> ExperimentalBlockModelWorkflow: ...
-    def grade_tonnage(
-        self, grade_column: str, tonnage_column: str, cutoffs: list[float]
-    ) -> ExperimentalBlockModelWorkflow: ...
-    def to_pandas(
-        self, columns: list[str] | None = None
-    ) -> ExperimentalBlockModelWorkflow: ...
-    def results(self) -> ExperimentalBlockModelResult: ...
 
 
 class BlockModel:
@@ -142,10 +127,32 @@ class BlockModel:
     ) -> ValidationReport: ...
 
 
-class MineError(Exception): ...
+class MineError(Exception):
+    """Single public exception surface for the Python SDK."""
+
 
 
 def binding_surface() -> PythonBindingSurface: ...
+def load_from_pandas(
+    dataframe: Any,
+    grid: GridDefinition,
+    schema: list[ColumnSchema],
+    metadata: dict[str, str] | None = None,
+) -> BlockModel: ...
+def load_from_numpy(
+    grid: GridDefinition,
+    schema: list[ColumnSchema],
+    metadata: dict[str, str] | None = None,
+    float_columns: dict[str, Any] | None = None,
+    integer_columns: dict[str, Any] | None = None,
+    boolean_columns: dict[str, Any] | None = None,
+) -> BlockModel: ...
+def export_to_pandas(
+    model: BlockModel, columns: list[str] | None = None
+) -> Any: ...
+def export_to_numpy(
+    model: BlockModel, columns: list[str] | None = None
+) -> dict[str, Any]: ...
 def validate_duplicate_indices(
     indices: list[tuple[int, int, int]],
 ) -> ValidationReport: ...
@@ -154,4 +161,3 @@ def validate_duplicate_coordinates(
     coordinates: list[tuple[float, float, float]],
     tolerance: float = 1e-9,
 ) -> ValidationReport: ...
-def experimental_workflow(model: BlockModel) -> ExperimentalBlockModelWorkflow: ...

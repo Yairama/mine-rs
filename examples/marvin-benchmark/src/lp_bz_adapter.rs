@@ -7,7 +7,9 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use mine_sdk::{LongTermSchedule, Metadata, MineError, PushbackPlan, SchedulingProblem};
+use mine_sdk::{
+    LongTermSchedule, Metadata, MineError, SchedulingProblem, experimental::PushbackPlan,
+};
 use serde::Serialize;
 
 use crate::lp_bz_bound::{LpBzBoundArtifact, LpBzInputArtifact, compute_lp_bz_bound_artifacts};
@@ -581,7 +583,9 @@ fn validate_competitive_probe_summary(
     if competitive_probe
         .competitive_local_optimizer_runtime_budget_contract
         .max_iteration_count
-        != competitive_probe.competitive_budget_profile.effective_iteration_budget
+        != competitive_probe
+            .competitive_budget_profile
+            .effective_iteration_budget
     {
         return Err(MineError::validation(
             "Focused LP/BZ adapter competitive probe must keep the surfaced effective full-round-repair budget aligned with the explicit competitive runtime budget contract."

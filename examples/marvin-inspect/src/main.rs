@@ -14,7 +14,10 @@ use std::fs;
 use std::path::PathBuf;
 
 use benchmark_blocks_support::read_benchmark_blocks;
-use mine_sdk::{BlockModelValidationExt, ValidationOptions};
+use mine_sdk::{
+    blockmodel::ModelSummary,
+    validation::{BlockModelValidationExt, ValidationOptions, ValidationReport},
+};
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -24,8 +27,8 @@ struct MarvinInspectOutput {
     grid_cell_count: usize,
     sparse: bool,
     missing_linear_indices: usize,
-    summary: mine_sdk::ModelSummary,
-    validation: mine_sdk::ValidationReport,
+    summary: ModelSummary,
+    validation: ValidationReport,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

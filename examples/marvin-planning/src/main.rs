@@ -16,10 +16,16 @@ use std::path::PathBuf;
 
 use benchmark_blocks_support::read_benchmark_blocks;
 use mine_sdk::{
-    BenchAssignment, BenchParameters, BlockModel, BlockPrecedenceTemplate, ColumnData, ColumnId,
-    MineError, PrecedenceOffset, PushbackGenerationRules, ScheduleConstraints, ScheduleEntry,
-    assign_benches, build_block_precedence_graph, build_pushback_prototype, build_schedule,
-    build_upit_prototype,
+    blockmodel::{BlockModel, ColumnData},
+    core::{ColumnId, MineError},
+    experimental::{
+        PushbackGenerationRules, PushbackPrototype, build_pushback_prototype, build_upit_prototype,
+    },
+    planning::{
+        BenchAssignment, BenchParameters, BlockPrecedenceTemplate, PrecedenceOffset,
+        ScheduleConstraints, ScheduleEntry, SchedulePeriodSummary, assign_benches,
+        build_block_precedence_graph, build_schedule,
+    },
 };
 use serde::Serialize;
 
@@ -38,9 +44,9 @@ struct MarvinPlanningOutput {
     schedule_period_count: usize,
     schedule_entry_count: usize,
     schedule_violation_count: usize,
-    schedule_period_summaries: Vec<mine_sdk::SchedulePeriodSummary>,
+    schedule_period_summaries: Vec<SchedulePeriodSummary>,
     pushback_count: usize,
-    pushbacks: Vec<mine_sdk::PushbackPrototype>,
+    pushbacks: Vec<PushbackPrototype>,
     assumptions: Vec<String>,
     limitations: Vec<String>,
 }
