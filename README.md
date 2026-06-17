@@ -4,7 +4,9 @@
 
 La apuesta no es empezar como otra suite minera cerrada, sino como una base reusable sobre la que puedan construirse librerías, notebooks, automatizaciones, tools deterministas y, más adelante, experiencias agenticas o interfaces de usuario.
 
-> Estado actual: el proyecto ya tiene una base funcional en Rust y Python, pero sigue en una etapa temprana. La documentación mezcla capacidades ya implementadas con dirección objetivo y roadmap; cuando un ejemplo aún no existe, se marca como conceptual.
+> Estado actual: `mine-rs` ya puede tratarse como un SDK `alpha` con base funcional en Rust y Python. Aun así, sigue en una etapa temprana: la API pública todavía está consolidándose y la documentación mezcla capacidades ya implementadas con dirección objetivo y roadmap; cuando un ejemplo aún no existe, se marca como conceptual.
+
+> Alcance recomendado del producto actual: ver [`docs/references/sdk-alpha-scope.md`](docs/references/sdk-alpha-scope.md).
 
 ## Qué estamos construyendo
 
@@ -120,6 +122,7 @@ Ese orden es intencional: primero cálculo confiable y contratos sólidos; despu
 | [`docs/references/repository-strategy.md`](docs/references/repository-strategy.md) | Decisión sobre monorepo, crates Rust, paquetes Python y capa agentica. |
 | [`docs/references/sparse-blockmodel-design.md`](docs/references/sparse-blockmodel-design.md) | Diseño experimental de materialización sparse en `BlockModel`. |
 | [`docs/references/python-sdk-design.md`](docs/references/python-sdk-design.md) | Diseño de experiencia Python y criterios de API. |
+| [`docs/references/sdk-alpha-scope.md`](docs/references/sdk-alpha-scope.md) | Alcance oficial del SDK `alpha`, incluyendo superficies recomendadas, experimentales e internas. |
 | [`docs/references/agentic-layer.md`](docs/references/agentic-layer.md) | Diseño conceptual de la capa agentica futura. |
 | [`docs/references/roadmap.md`](docs/references/roadmap.md) | Roadmap narrativo por fases. |
 | [`docs/references/temporal-backlog.md`](docs/references/temporal-backlog.md) | Backlog temporal original conservado como referencia histórica. |
