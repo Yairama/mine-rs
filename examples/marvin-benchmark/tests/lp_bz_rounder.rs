@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 #[path = "../src/lp_bz_rounder.rs"]
 mod lp_bz_rounder;
 #[path = "../src/marvin_support.rs"]

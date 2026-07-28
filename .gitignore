@@ -35,7 +35,7 @@ htmlcov/
 # Notebooks
 .ipynb_checkpoints/
 
-# Local data and generated artifacts
+# Local data and generated artifacts. Tracked benchmark snapshots remain tracked.
 .env
 .env.*
 !.env.example
@@ -43,12 +43,11 @@ htmlcov/
 .mine-vfs/
 artifacts/
 outputs/
-!datasets/benchmarks/**/outputs/
 reports/generated/
 datasets/raw/
 datasets/tmp/
 
-# Heavy local datasets (use git add -f only for intentionally curated fixtures)
+# Dataset trees are local by default. Use git add -f only for intentionally curated fixtures.
 datasets/**/*.blocks
 datasets/**/*.csv
 datasets/**/*.parquet

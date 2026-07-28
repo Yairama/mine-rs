@@ -71,6 +71,7 @@ pub struct CrossValidationReport {
 
 /// Método de estimación para la cross-validation.
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum CrossValidationEstimator {
     /// Ordinary kriging con variograma y vecindad explícitos.
     OrdinaryKriging {

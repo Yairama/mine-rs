@@ -4,6 +4,12 @@ La capa agentica de `mine-rs` debe construirse sobre el SDK, no dentro del core 
 
 La inspiración metodológica mencionada para esta capa es `github.com/langchain-ai/deep-agents-from-scratch/`, especialmente ideas como task tools, subagents, virtual filesystem y separación entre razonamiento y ejecución.
 
+## Estado actual
+
+Esta capa no está implementada. No existe hoy un paquete `python/mine-agents`, runtime de agentes, VFS agentico ni orquestación por subagents que forme parte del producto.
+
+Su implementación está explícitamente pospuesta hasta estabilizar, en este orden, la superficie de tools deterministas, el SDK Python, los contratos de artefactos/VFS y la disciplina operativa de releases. El resto de este documento describe diseño objetivo, no capacidades disponibles.
+
 ## Principio central
 
 ```text
@@ -250,7 +256,7 @@ La capa agentica depende del SDK en tres niveles:
 
 Si una capacidad no existe en el SDK, el agente debe reconocer la limitación y no simularla como si fuera real.
 
-## Roadmap agentico sugerido
+## Roadmap agentico futuro y pospuesto
 
 1. Definir schemas de tools.
 2. Implementar `inspect_model` y `validate_model`.

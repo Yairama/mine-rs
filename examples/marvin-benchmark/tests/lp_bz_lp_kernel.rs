@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 #[path = "../src/lp_bz_lp_kernel.rs"]
 mod lp_bz_lp_kernel;
 

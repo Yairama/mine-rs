@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use mine_blockmodel::{BlockModel, ColumnData};
 use mine_core::{
-    ColumnId, ColumnLogicalType, ColumnSchema, ColumnSchemaSet, GridDefinition, MineError,
+    ColumnId, ColumnLogicalType, ColumnMiningRole, ColumnSchema, ColumnSchemaSet, GridDefinition,
+    MineError,
 };
 use mine_indexing::{ijk_to_linear, ijk_to_xyz, linear_to_ijk, xyz_to_ijk};
 use serde::{Deserialize, Serialize};
@@ -117,15 +118,71 @@ impl DistributionRules {
                             ),
                         ));
                     }
+                    reject_intensive_split(schema, column, rule)?;
                 }
                 DistributionOperation::Replicate { column } => {
                     ensure_distribution_column_exists(schema, column, rule)?;
+                    reject_conservative_replication(schema, column, rule)?;
                 }
             }
         }
 
         Ok(())
     }
+}
+
+fn reject_intensive_split(
+    schema: &ColumnSchemaSet,
+    column: &ColumnId,
+    rule: &DistributionRule,
+) -> Result<(), MineError> {
+    let source_schema = schema.get(column).ok_or_else(|| {
+        MineError::schema(format!(
+            "distribution rule for output `{}` requires column `{column}` but it is missing from the schema",
+            rule.output_column()
+        ))
+    })?;
+
+    if matches!(
+        source_schema.mining_role(),
+        ColumnMiningRole::Grade | ColumnMiningRole::Density | ColumnMiningRole::Recovery
+    ) {
+        return Err(MineError::invalid_parameter(
+            "rules",
+            format!(
+                "split_equally distribution for output `{}` cannot preserve the `{:?}` role of intensive column `{column}`; use replicate",
+                rule.output_column(),
+                source_schema.mining_role()
+            ),
+        ));
+    }
+
+    Ok(())
+}
+
+fn reject_conservative_replication(
+    schema: &ColumnSchemaSet,
+    column: &ColumnId,
+    rule: &DistributionRule,
+) -> Result<(), MineError> {
+    let source_schema = schema.get(column).ok_or_else(|| {
+        MineError::schema(format!(
+            "distribution rule for output `{}` requires column `{column}` but it is missing from the schema",
+            rule.output_column()
+        ))
+    })?;
+
+    if source_schema.mining_role() == ColumnMiningRole::Tonnage {
+        return Err(MineError::invalid_parameter(
+            "rules",
+            format!(
+                "replicate distribution for output `{}` would duplicate conservative tonnage column `{column}`; use split_equally",
+                rule.output_column()
+            ),
+        ));
+    }
+
+    Ok(())
 }
 
 /// Subdivide un `BlockModel` hacia una grilla más fina usando reglas explícitas.

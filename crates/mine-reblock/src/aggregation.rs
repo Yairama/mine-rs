@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use mine_blockmodel::{BlockModel, ColumnData};
 use mine_core::{
-    ColumnId, ColumnLogicalType, ColumnSchema, ColumnSchemaSet, GridDefinition, MineError,
+    ColumnId, ColumnLogicalType, ColumnMiningRole, ColumnSchema, ColumnSchemaSet, GridDefinition,
+    MineError,
 };
 use mine_indexing::{ijk_to_linear, ijk_to_xyz, linear_to_ijk, xyz_to_ijk};
 use serde::{Deserialize, Serialize};
@@ -240,10 +241,17 @@ impl AggregationRules {
     pub fn validate_against_schema(&self, schema: &ColumnSchemaSet) -> Result<(), MineError> {
         for rule in &self.rules {
             match rule.operation() {
-                AggregationOperation::Sum { column }
-                | AggregationOperation::Minimum { column }
-                | AggregationOperation::Maximum { column } => {
+                AggregationOperation::Sum { column } => {
                     ensure_numeric_column(schema, column, rule)?;
+                    reject_intensive_sum(schema, column, rule)?;
+                }
+                AggregationOperation::Minimum { column } => {
+                    ensure_numeric_column(schema, column, rule)?;
+                    reject_tonnage_non_sum(schema, column, rule, "minimum")?;
+                }
+                AggregationOperation::Maximum { column } => {
+                    ensure_numeric_column(schema, column, rule)?;
+                    reject_tonnage_non_sum(schema, column, rule, "maximum")?;
                 }
                 AggregationOperation::WeightedAverage {
                     value_column,
@@ -251,9 +259,11 @@ impl AggregationRules {
                 } => {
                     ensure_numeric_column(schema, value_column, rule)?;
                     ensure_numeric_column(schema, weight_column, rule)?;
+                    reject_tonnage_non_sum(schema, value_column, rule, "weighted_average")?;
                 }
                 AggregationOperation::First { column } => {
                     ensure_column_exists(schema, column, rule)?;
+                    reject_tonnage_non_sum(schema, column, rule, "first")?;
                 }
                 AggregationOperation::Majority { column } => {
                     let logical_type = ensure_column_exists(schema, column, rule)?;
@@ -297,6 +307,61 @@ impl AggregationRules {
 
         Ok(())
     }
+}
+
+fn reject_tonnage_non_sum(
+    schema: &ColumnSchemaSet,
+    column: &ColumnId,
+    rule: &AggregationRule,
+    operation: &str,
+) -> Result<(), MineError> {
+    let source_schema = schema.get(column).ok_or_else(|| {
+        MineError::schema(format!(
+            "aggregation rule for output `{}` requires column `{column}` but it is missing from the schema",
+            rule.output_column()
+        ))
+    })?;
+
+    if source_schema.mining_role() == ColumnMiningRole::Tonnage {
+        return Err(MineError::invalid_parameter(
+            "rules",
+            format!(
+                "{operation} aggregation for output `{}` cannot preserve conservative tonnage column `{column}`; use sum",
+                rule.output_column()
+            ),
+        ));
+    }
+
+    Ok(())
+}
+
+fn reject_intensive_sum(
+    schema: &ColumnSchemaSet,
+    column: &ColumnId,
+    rule: &AggregationRule,
+) -> Result<(), MineError> {
+    let source_schema = schema.get(column).ok_or_else(|| {
+        MineError::schema(format!(
+            "aggregation rule for output `{}` requires column `{column}` but it is missing from the schema",
+            rule.output_column()
+        ))
+    })?;
+
+    if matches!(
+        source_schema.mining_role(),
+        ColumnMiningRole::Grade | ColumnMiningRole::Density | ColumnMiningRole::Recovery
+    ) {
+        return Err(MineError::invalid_parameter(
+            "rules",
+            format!(
+                "sum aggregation for output `{}` cannot preserve the `{:?}` role of intensive column `{column}`; use an explicit weighted average",
+                rule.output_column(),
+                source_schema.mining_role()
+            ),
+        ));
+    }
+
+    Ok(())
 }
 
 /// Resultado reusable de una agregación ponderada sobre variables continuas.

@@ -184,7 +184,7 @@ pub fn generate_sequential_gaussian_ensemble(
             metadata.insert("known_mean", MetadataValue::Float(options.known_mean()))?;
             Ok(())
         },
-        |samples, column_id| validate_conditioning_samples(samples, column_id),
+        validate_conditioning_samples,
         0.0,
         |samples, _, _| Ok(samples.to_vec()),
         &simple_kriging,
@@ -235,9 +235,9 @@ pub fn generate_sequential_indicator_ensemble(
             metadata.insert("indicator_mean", MetadataValue::Float(indicator_mean))?;
             Ok(())
         },
-        |samples, column_id| validate_conditioning_samples(samples, column_id),
+        validate_conditioning_samples,
         options.cutoff(),
-        |samples, column_id, cutoff| build_indicator_samples(samples, column_id, cutoff),
+        build_indicator_samples,
         &simple_kriging,
     )
 }
@@ -430,6 +430,7 @@ fn build_summary(values: &[SimulatedNodeValue]) -> Result<SequentialSimulationSu
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_realization_descriptor<AddMethodMetadata>(
     realization_index: usize,
     random_seed: u64,

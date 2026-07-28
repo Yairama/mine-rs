@@ -57,10 +57,7 @@ impl SlopeAngleRule {
         azimuth_to_degrees: f64,
         slope_angle_degrees: f64,
     ) -> Result<Self, MineError> {
-        if !azimuth_from_degrees.is_finite()
-            || azimuth_from_degrees < 0.0
-            || azimuth_from_degrees >= 360.0
-        {
+        if !(0.0..360.0).contains(&azimuth_from_degrees) {
             return Err(MineError::invalid_parameter(
                 "azimuth_from_degrees",
                 "azimuth_from_degrees must be in [0, 360)",
@@ -287,12 +284,11 @@ pub fn derive_precedence_template_from_slope(
             // We limit to max_reach for the vertical direction as well
             let dk_limit = max_reach_i.max(dk_min);
             for dk in dk_min..=dk_limit {
-                if dk >= 1 {
-                    if let Ok(offset) = PrecedenceOffset::new(di, dj, dk) {
-                        if !offsets.contains(&offset) {
-                            offsets.push(offset);
-                        }
-                    }
+                if dk >= 1
+                    && let Ok(offset) = PrecedenceOffset::new(di, dj, dk)
+                    && !offsets.contains(&offset)
+                {
+                    offsets.push(offset);
                 }
             }
         }

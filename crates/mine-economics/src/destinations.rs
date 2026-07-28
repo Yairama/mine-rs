@@ -135,13 +135,13 @@ impl DestinationCapacity {
         max_tonnes_per_period: Option<f64>,
         tonnage_unit: MeasurementUnit,
     ) -> Result<Self, MineError> {
-        if let Some(max) = max_tonnes_per_period {
-            if !max.is_finite() || max <= 0.0 {
-                return Err(MineError::invalid_parameter(
-                    "max_tonnes_per_period",
-                    "destination capacity must be finite and positive",
-                ));
-            }
+        if let Some(max) = max_tonnes_per_period
+            && (!max.is_finite() || max <= 0.0)
+        {
+            return Err(MineError::invalid_parameter(
+                "max_tonnes_per_period",
+                "destination capacity must be finite and positive",
+            ));
         }
         Ok(Self {
             max_tonnes_per_period,

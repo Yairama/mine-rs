@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 //! Microbenchmarks criterion de operaciones críticas del SDK (MR-216).
 //!
 //! Cubre las operaciones que dominan los pipelines de planeamiento del repo:

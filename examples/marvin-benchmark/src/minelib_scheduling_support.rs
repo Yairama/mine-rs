@@ -4,6 +4,8 @@
 //! - Espinoza, D., Goycoolea, M., Moreno, E., Newman, A. M. (2013).
 //!   *MineLib: a library of open pit mining problems*.
 //!   https://doi.org/10.1007/s10479-012-1258-3
+#![allow(dead_code)]
+#![allow(clippy::too_many_arguments, clippy::type_complexity)]
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -208,13 +210,12 @@ pub fn build_phase_plan_from_reference_periods(
         }
         if let Some(previous_period_index) = reference_period_by_linear_index
             .insert(assignment.linear_index, assignment.period_index)
+            && previous_period_index != assignment.period_index
         {
-            if previous_period_index != assignment.period_index {
-                return Err(mine_sdk::MineError::validation(format!(
-                    "reference solution assigns block `{}` to periods `{previous_period_index}` and `{}`",
-                    assignment.linear_index, assignment.period_index
-                )));
-            }
+            return Err(mine_sdk::MineError::validation(format!(
+                "reference solution assigns block `{}` to periods `{previous_period_index}` and `{}`",
+                assignment.linear_index, assignment.period_index
+            )));
         }
     }
     if reference_period_by_linear_index.is_empty() {
@@ -306,12 +307,10 @@ pub fn build_phase_plan_from_reference_periods(
                 }
             }
             if let Some(Some(previous_period_index)) = previous_period_by_period.get(&period_index)
-            {
-                if let Some(predecessor_phase_id) =
+                && let Some(predecessor_phase_id) =
                     phase_id_by_key.get(&(*previous_period_index, *bench))
-                {
-                    predecessor_phase_ids.insert(predecessor_phase_id.clone());
-                }
+            {
+                predecessor_phase_ids.insert(predecessor_phase_id.clone());
             }
             phases.push(PhaseDesign {
                 phase_id,
@@ -480,9 +479,7 @@ pub fn build_preferred_phase_plan_for_minelib_scheduling(
             )
         })?;
         let revenue_factors = uniform_revenue_factors(marvin_factor_count)?;
-        let descriptive_note = format!(
-            "mclaughlin-limit scheduling now promotes a bounded nested-shell × bench phase plan rebuilt from open `*.upit` block values and benchmark precedence, treating shell × bench phases as pushback-equivalent mining units before routing."
-        );
+        let descriptive_note = "mclaughlin-limit scheduling now promotes a bounded nested-shell × bench phase plan rebuilt from open `*.upit` block values and benchmark precedence, treating shell × bench phases as pushback-equivalent mining units before routing.".to_owned();
         let shell_artifacts = build_phase_plan_from_nested_shells(
             model,
             precedence_graph,

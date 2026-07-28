@@ -73,7 +73,9 @@ Debe considerarse parte del SDK alpha, salvo indicación explícita en contrario
 - reblocking básico y reconciliación;
 - economía base y `EconomicBlockModel`;
 - tools deterministas reexportadas o conectadas al SDK;
-- primitives de planning ya formalizadas como contratos serializables, cuando se usen con claims de madurez acordes a su estado actual.
+- primitives de planning básico ya formalizadas como contratos serializables: bancos/phase tagging básicos, `MiningScenario`, `PrecedenceGraph`, `Schedule` y sus reportes, cuando se usen con restricciones explícitas.
+
+El import `mine_sdk::planning` no otorga una clasificación uniforme a todo el módulo. TopoSort CPIT/PCPSP, el bound Lagrangiano LP/BZ, el pseudoflow paramétrico, pushbacks, cuts y scheduling avanzado siguen siendo experimentales o benchmark-side según su uso.
 
 Camino de imports recomendado para nuevo código Rust:
 
@@ -93,8 +95,11 @@ La entrada pública recomendada en Python es `miners`.
 Debe considerarse parte del SDK alpha, salvo indicación explícita en contrario, la superficie enfocada en:
 
 - helpers públicos `load_from_pandas(...)`, `load_from_numpy(...)`, `export_to_pandas(...)` y `export_to_numpy(...)`;
+- IO público `read_csv(...)`, `write_csv(...)`, `read_parquet(...)` y `write_parquet(...)`;
 - construcción y lectura explícita de `BlockModel` cuando haga falta control más fino;
 - tipos core expuestos a Python;
+- indexing con `GridDefinition.xyz_to_ijk(...)`, `ijk_to_xyz(...)`, `ijk_to_linear(...)` y `linear_to_ijk(...)`;
+- reblocking con `AggregationRule`, `DistributionRule`, `superblock(...)` y `subblock(...)`;
 - la excepción pública `MineError` como contrato único actual para fallas operativas;
 - `summary()`;
 - `validate()` y `ValidationReport`;
@@ -106,10 +111,12 @@ Debe considerarse parte del SDK alpha, salvo indicación explícita en contrario
 
 Camino recomendado hoy para usuarios Python:
 
-1. `load_from_pandas(...)` o `load_from_numpy(...)`
-2. `validate()`
-3. `summary()` / `basic_statistics()` / `grouped_statistics()` / `grade_tonnage()`
-4. `export_to_pandas(...)` o `export_to_numpy(...)`
+1. `read_csv(...)`, `read_parquet(...)`, `load_from_pandas(...)` o `load_from_numpy(...)`
+2. indexing explícito desde `GridDefinition` cuando el workflow lo requiera
+3. `validate()`
+4. `summary()` / `basic_statistics()` / `grouped_statistics()` / `grade_tonnage()`
+5. `superblock(...)` o `subblock(...)` con reglas declarativas cuando cambie la resolución
+6. `write_csv(...)`, `write_parquet(...)`, `export_to_pandas(...)` o `export_to_numpy(...)`
 
 Este flujo forma parte de la superficie pública recomendada del SDK alpha. Los wrappers fluent o encadenables no deben presentarse como camino principal.
 
@@ -140,6 +147,8 @@ Las siguientes áreas deben tratarse como **experimentales** aunque ya existan e
 
 - APIs fluent o wrappers explícitamente marcados como experimentales;
 - layouts o representaciones sparse todavía en evolución;
+- TopoSort CPIT/PCPSP y el bound Lagrangiano LP/BZ;
+- pseudoflow paramétrico y rutas optimizadas de shells todavía abiertas;
 - rutas avanzadas de pushbacks, cuts y scheduling cuya madurez todavía dependa de cierres adicionales de comparabilidad;
 - prototipos estocásticos;
 - optimizaciones de performance cuya semántica pública aún no esté consolidada.
@@ -178,7 +187,7 @@ Estas piezas sí son estratégicamente valiosas para el proyecto, pero su valor 
 
 No deben confundirse con el camino principal de adopción del SDK alpha.
 
-La baseline pública de performance en [`public-performance-baseline.md`](public-performance-baseline.md) complementa esta separación desde el lado producto: define guardrails de runtime para workflows públicos del SDK `alpha`, pero no reemplaza los diagnósticos ni los artefactos benchmark-side usados para comparabilidad o investigación.
+El guardrail público de performance en [`public-performance-baseline.md`](public-performance-baseline.md) complementa esta separación desde el lado producto, pero todavía no contiene la baseline cuantitativa versionada exigida por MR-229. Tampoco reemplaza los diagnósticos ni los artefactos benchmark-side usados para comparabilidad o investigación.
 
 ## Qué puede prometer hoy el proyecto
 
@@ -196,7 +205,7 @@ Hoy `mine-rs` no debe prometer:
 
 - reemplazo total de suites comerciales completas;
 - estabilidad fuerte de toda la API pública;
-- capa agentica madura;
+- capa agentica implementada o madura;
 - comparabilidad paper-grade cerrada para todo scheduling avanzado;
 - cobertura completa de todas las instancias y formulaciones MineLib como claim ya resuelto.
 
@@ -208,9 +217,9 @@ Camino recomendado hoy:
 
 1. `miners`
 2. `examples/python/`
-3. `load_from_pandas(...)` o `load_from_numpy(...)`
-4. `validate()` + analytics públicos de `BlockModel`
-5. `export_to_pandas(...)` o `export_to_numpy(...)`
+3. IO CSV/Parquet o carga pandas/numpy desde la raíz pública
+4. indexing, validación, analytics y reblocking públicos según el workflow
+5. escritura CSV/Parquet o exportación pandas/numpy
 
 ### Consumidor Rust
 

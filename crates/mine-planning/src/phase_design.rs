@@ -491,6 +491,14 @@ fn build_cross_shell_predecessors(
         .collect()
 }
 
+// Helper for tests only; not part of the public API.
+impl PhaseDesign {
+    #[cfg(test)]
+    fn selected_blocks_contain(&self, li: usize) -> bool {
+        self.block_indices.contains(&li)
+    }
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -773,13 +781,5 @@ mod tests {
             outer_lower.predecessor_phase_ids,
             vec!["phase-s00-b2", "phase-s01-b2"]
         );
-    }
-}
-
-// Helper for tests only — not part of public API
-impl PhaseDesign {
-    #[cfg(test)]
-    fn selected_blocks_contain(&self, li: usize) -> bool {
-        self.block_indices.contains(&li)
     }
 }

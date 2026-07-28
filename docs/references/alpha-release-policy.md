@@ -1,6 +1,6 @@
 # Política de releases alpha `0.x`
 
-Estado de este documento: referencia canónica activa para versionado y releases en la etapa `0.x`.
+Estado de este documento: política documental activa; la disciplina operativa de publicación, wheels y releases sigue en progreso (MR-228).
 
 ## Propósito
 
@@ -69,11 +69,13 @@ Hoy el mínimo aceptable antes de tratar un estado del repo como releaseable en 
    - `cargo fmt --all --check`
    - `cargo clippy --workspace --all-targets -- -D warnings`
    - `cargo nextest run --workspace`
-2. **Flujo local Python soportado** validado para la superficie alpha:
-   - `python -m maturin develop`
-   - `python -m unittest discover -s tests -p "test_python_*.py"`
+2. **Job Python de CI y flujo local equivalente** para la superficie alpha:
+   - `python -m pip install --upgrade --editable ".[test]"`
+   - `python -m mypy --strict --no-incremental tests/typecheck_python_public.py`
+   - `python -m mypy.stubtest miners`
+   - `python -m pytest tests`
 
-Estos gates son mínimos y actuales. No implican todavía una política completa de publishing, wheels, firmas, canales automáticos ni rediseño de CI.
+Estos gates son mínimos de desarrollo y CI. No implementan todavía publishing, wheels, firmas, canales automáticos ni un proceso verificable de release; documentarlos no cierra por sí solo MR-228.
 
 ## Lectura correcta de esta política
 

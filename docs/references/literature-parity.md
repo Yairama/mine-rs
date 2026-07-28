@@ -1,12 +1,14 @@
 # Tabla de paridad mine-rs vs literatura MineLib
 
-Fuente canónica del estado de paridad del repo contra los resultados publicados y los reportes JSON versionados (MR-217).
+Tabla documental del estado de paridad del repo contra resultados publicados y reportes JSON generados localmente (MR-217). La tabla sí está rastreada por Git; los reportes bajo `datasets/benchmarks/outputs/` no forman parte de un checkout limpio.
 
 Reglas de mantenimiento:
 
-- El contrato validado por `examples/marvin-benchmark/tests/literature_parity.rs` exige que este documento cite, con redondeo a tres decimales, los valores canónicos tomados de los reportes JSON versionados que sustentan la tabla y sus notas (UPIT oficiales reproducidos, candidatos TopoSort auditados, bounds Lagrangianos y el candidato self-contained citado para Marvin CPIT). Si un reporte se regenera con valores nuevos, el test falla hasta actualizar este documento.
+- El contrato opt-in validado por `examples/marvin-benchmark/tests/literature_parity.rs` exige que este documento cite, con redondeo a tres decimales, los valores tomados de reportes JSON generados localmente (UPIT oficiales reproducidos, candidatos TopoSort auditados, bounds Lagrangianos y el candidato self-contained citado para Marvin CPIT). Esos tests están ignorados por defecto porque los reportes no están rastreados por Git.
 - La columna de publicado usa como baseline los info files staged (`datasets/benchmarks/*/​*-info.txt`, valores MineLib oficiales de [R29] Espinoza et al., doi 10.1007/s10479-012-1258-3). La literatura posterior ([R33] Jélvez et al., [R37] Rivera Letelier et al., doi 10.1287/opre.2019.1965) mejoró varios best-knowns; esas mejoras se mencionan como contexto de comparabilidad, pero no reemplazan el valor oficial staged en esta tabla. Superar el incumbent staged 2012 NO equivale a reclamar un best-known mundial.
 - Los runtimes viven en los reportes JSON (telemetría MR-215) y no se copian aquí porque dependen de la máquina.
+
+Para revalidar la tabla, primero genera los reportes con los bins `upit_runtime`, `cpit_toposort`, `pcpsp_toposort` y `pcpsp_bound` documentados en `README.md`; después ejecuta `cargo test -p marvin-benchmark --test literature_parity -- --ignored`. Las filas McLaughlin requieren además los datasets externos en sus rutas esperadas.
 
 ## Estado por instancia y formulación
 

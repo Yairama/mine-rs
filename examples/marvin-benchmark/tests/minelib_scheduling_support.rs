@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 #[path = "../src/benchmark_blocks_support.rs"]
 mod benchmark_blocks_support;
 #[path = "../src/marvin_support.rs"]
@@ -41,7 +43,7 @@ fn build_reference_period_bench_phase_plan_from_marvin_cpit() {
     let model = read_benchmark_blocks(benchmark_path("marvin", "marvin.blocks"), "marvin")
         .expect("marvin.blocks should load");
     let cpit_solution = read_minelib_cpit_solution(
-        benchmark_path("marvin", "references\\marvin_cpit_gmunoz120723.sol"),
+        benchmark_path("marvin", "references/marvin_cpit_gmunoz120723.sol"),
         &model,
     )
     .expect("marvin CPIT solution should load");
@@ -93,10 +95,10 @@ fn build_nested_shell_bench_phase_plan_from_marvin_upit() {
     let model = read_benchmark_blocks(benchmark_path("marvin", "marvin.blocks"), "marvin")
         .expect("marvin.blocks should load");
     let precedence_graph =
-        read_minelib_precedence_graph(benchmark_path("marvin", "references\\marvin.prec"), &model)
+        read_minelib_precedence_graph(benchmark_path("marvin", "references/marvin.prec"), &model)
             .expect("marvin precedence should load");
     let upit_block_values =
-        read_minelib_upit_block_values(benchmark_path("marvin", "references\\marvin.upit"), &model)
+        read_minelib_upit_block_values(benchmark_path("marvin", "references/marvin.upit"), &model)
             .expect("marvin upit values should load")
             .into_iter()
             .collect();
@@ -144,7 +146,7 @@ fn build_marvin_revenue_factor_shells_produces_multiple_shells() {
     let model = read_benchmark_blocks(benchmark_path("marvin", "marvin.blocks"), "marvin")
         .expect("marvin.blocks should load");
     let precedence_graph =
-        read_minelib_precedence_graph(benchmark_path("marvin", "references\\marvin.prec"), &model)
+        read_minelib_precedence_graph(benchmark_path("marvin", "references/marvin.prec"), &model)
             .expect("marvin precedence should load");
     let revenue_factors = uniform_revenue_factors(7).expect("revenue factors should build");
 
@@ -172,12 +174,12 @@ fn preferred_phase_plan_uses_marvin_nested_shell_primary_route() {
     let model = read_benchmark_blocks(benchmark_path("marvin", "marvin.blocks"), "marvin")
         .expect("marvin.blocks should load");
     let cpit_solution = read_minelib_cpit_solution(
-        benchmark_path("marvin", "references\\marvin_cpit_gmunoz120723.sol"),
+        benchmark_path("marvin", "references/marvin_cpit_gmunoz120723.sol"),
         &model,
     )
     .expect("marvin CPIT solution should load");
     let precedence_graph =
-        read_minelib_precedence_graph(benchmark_path("marvin", "references\\marvin.prec"), &model)
+        read_minelib_precedence_graph(benchmark_path("marvin", "references/marvin.prec"), &model)
             .expect("marvin precedence should load");
     let linear_index_to_row_index =
         build_linear_index_to_row_index(&model).expect("lookup should build");
@@ -267,6 +269,7 @@ fn preferred_phase_plan_uses_marvin_nested_shell_primary_route() {
 }
 
 #[test]
+#[ignore = "requires ignored external mclaughlin-limit benchmark assets"]
 fn preferred_phase_plan_uses_mclaughlin_limit_nested_shell_primary_route() {
     let model = read_benchmark_blocks(
         benchmark_path("mclaughlin-limit", "mclaughlin_limit.blocks"),
@@ -276,18 +279,18 @@ fn preferred_phase_plan_uses_mclaughlin_limit_nested_shell_primary_route() {
     let cpit_solution = read_minelib_cpit_solution(
         benchmark_path(
             "mclaughlin-limit",
-            "references\\mclaughlin_limit_cpit_gmunoz120723.sol",
+            "references/mclaughlin_limit_cpit_gmunoz120723.sol",
         ),
         &model,
     )
     .expect("mclaughlin-limit CPIT solution should load");
     let precedence_graph = read_minelib_precedence_graph(
-        benchmark_path("mclaughlin-limit", "references\\mclaughlin_limit.prec"),
+        benchmark_path("mclaughlin-limit", "references/mclaughlin_limit.prec"),
         &model,
     )
     .expect("mclaughlin-limit precedence should load");
     let upit_block_values = read_minelib_upit_block_values(
-        benchmark_path("mclaughlin-limit", "references\\mclaughlin_limit.upit"),
+        benchmark_path("mclaughlin-limit", "references/mclaughlin_limit.upit"),
         &model,
     )
     .expect("mclaughlin-limit upit values should load")
@@ -366,6 +369,7 @@ fn preferred_phase_plan_uses_mclaughlin_limit_nested_shell_primary_route() {
 }
 
 #[test]
+#[ignore = "requires ignored external heavy mclaughlin benchmark assets"]
 fn preferred_phase_plan_falls_back_to_reference_period_bench_when_nested_shell_is_disabled() {
     let model = read_benchmark_blocks(
         benchmark_path("mclaughlin", "mclaughlin.blocks"),
@@ -373,7 +377,7 @@ fn preferred_phase_plan_falls_back_to_reference_period_bench_when_nested_shell_i
     )
     .expect("mclaughlin.blocks should load");
     let cpit_solution = read_minelib_cpit_solution(
-        benchmark_path("mclaughlin", "references\\mclaughlin_cpit_gmunoz120723.sol"),
+        benchmark_path("mclaughlin", "references/mclaughlin_cpit_gmunoz120723.sol"),
         &model,
     )
     .expect("mclaughlin CPIT solution should load");

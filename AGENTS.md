@@ -15,7 +15,7 @@ El proyecto no debe tratarse como una GUI minera monolítica. La prioridad es co
 
 ## Estado actual
 
-El repositorio está en etapa temprana. La documentación define la dirección objetivo, pero muchas APIs aún no existen.
+El repositorio está en etapa `alpha` temprana, pero ya tiene un core Rust, una superficie Python usable y tools deterministas integradas. La documentación debe distinguir con precisión lo implementado de las rutas experimentales, benchmark-side y futuras.
 
 Antes de implementar, revisa:
 
@@ -27,6 +27,8 @@ Antes de implementar, revisa:
 - `docs/references/architecture.md`
 - `docs/references/repository-strategy.md`
 - `docs/references/python-sdk-design.md`
+- `docs/references/sdk-alpha-scope.md`
+- `docs/references/maturity-matrix.md`
 - `docs/references/agentic-layer.md`
 - `docs/references/roadmap.md`
 - `docs/references/temporal-backlog.md`
@@ -82,7 +84,7 @@ No debe depender de Python, agentes, prompts ni runtimes LLM.
 
 ### `mine-sdk`
 
-Fachada pública Rust. Debe reexportar capacidades de crates internos y ser la entrada estable para capas superiores.
+Fachada pública Rust y entrada recomendada para capas superiores. No debe inferirse que todo `mine_sdk::planning` tiene la misma madurez: contratos básicos serializables pueden ser recomendados, mientras algoritmos avanzados y rutas benchmark-side deben etiquetarse según la matriz de madurez.
 
 ### `mine-tools`
 
@@ -90,13 +92,13 @@ Tools deterministas orientadas a automatización y agentes. Debe depender de `mi
 
 ### `mine-python` y `python/miners`
 
-`mine-python` es el binding nativo PyO3/Maturin. `python/miners` es el paquete Python público.
+`mine-python` es el binding nativo PyO3/Maturin. `python/miners` es el paquete Python público y ya expone pandas/numpy, IO CSV/Parquet, indexing de `GridDefinition`, reblocking y `miners.tools`.
 
 La lógica minera crítica debe vivir en Rust. Python debe aportar ergonomía, type hints, integración con pandas/numpy y experiencia de usuario.
 
 ### `python/mine-agents`
 
-Capa agentica Python-first. Debe vivir separada del SDK base y depender de `miners` y de los contratos de `mine-tools`.
+Capa agentica Python-first objetivo. No está implementada y permanece pospuesta hasta estabilizar tools, Python, contratos de artefactos/VFS y disciplina de releases. Cuando se implemente, deberá vivir separada del SDK base y depender de `miners` y de los contratos de `mine-tools`.
 
 Los agentes orquestan; el SDK calcula.
 
@@ -216,9 +218,7 @@ Si una tarea coincide con alguna de estas descripciones, activa la skill corresp
 - Referenciar `docs/backlog.md` como backlog operativo.
 - Mantener `docs/references/repository-strategy.md` como fuente principal para decisiones de repositorio/crates/paquetes.
 
-## Convenciones de implementación futuras
-
-Cuando el proyecto pase a implementación:
+## Convenciones de implementación
 
 - Añadir tests junto con lógica de dominio.
 - Hacer que validadores devuelvan reportes estructurados.

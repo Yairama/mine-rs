@@ -1,10 +1,10 @@
-# Baseline público de performance
+# Guardrail público de performance
 
-Estado de este documento: referencia canónica activa para la etapa `alpha`.
+Estado de este documento: definición cualitativa activa; baseline cuantitativa pendiente (MR-229).
 
 ## Propósito
 
-Este documento define el **baseline público de performance** que hoy puede sostener `mine-rs` sin sobreprometer.
+Este documento define el workflow público que deberá medir la **baseline cuantitativa de performance** de `mine-rs` y cómo interpretar sus futuras mediciones sin sobreprometer.
 
 No busca:
 
@@ -13,25 +13,25 @@ No busca:
 - rediseñar la infraestructura de benchmarks;
 - mezclar claims de producto con investigación benchmark-side.
 
-Su función es más acotada: fijar la **línea base mínima y creíble** que el repo ya soporta para detectar regresiones en los workflows públicos `alpha`.
+Su función actual es más acotada: fijar un **guardrail cualitativo** para los workflows públicos `alpha`. El repo todavía no versiona mediciones, entorno de referencia ni umbrales cuantitativos de carga, validación y analytics; por eso MR-229 permanece pendiente.
 
-## Qué baseline público sí existe hoy
+## Qué guardrail sí existe hoy
 
-Hoy el baseline público de producto debe leerse como:
+Hoy el guardrail público de producto debe leerse como:
 
 1. el workflow Python recomendado `load -> validate -> analyze -> export`;
 2. el workflow complementario de `miners.tools` sobre modelos pequeños y deterministas;
 3. la expectativa de que ambos sigan siendo usables como superficie **estable** del SDK `alpha`.
 
-La evidencia ejecutable mínima ya versionada para ese baseline vive en:
+La evidencia funcional ejecutable para ese guardrail vive en:
 
 - `examples/python/pandas_load_validate_analyze_export.py`
 - `examples/python/numpy_load_validate_export.py`
 - `examples/python/tools_workflow.py`
 
-Eso es deliberadamente pequeño. El baseline público actual no intenta cubrir todavía datasets industriales, tuning agresivo ni claims de throughput máximo.
+Estos ejemplos verifican comportamiento, no performance. No registran tiempos, memoria, máquina de referencia ni umbrales de regresión; por tanto no constituyen la baseline cuantitativa solicitada por MR-229.
 
-## Workflow guardrail orientado a producto
+## Workflow a medir
 
 El workflow público que debe usarse como guardrail principal es:
 
@@ -48,11 +48,11 @@ Lectura correcta por etapa:
 
 Mientras este flujo siga siendo el camino recomendado del SDK `alpha`, su performance debe tratarse como señal de producto: si una contribución lo vuelve claramente más lento, más frágil o menos predecible en sus ejemplos públicos, debe leerse como regresión aunque el core siga compilando.
 
-## Rol de `miners.tools` en el mismo baseline
+## Rol de `miners.tools` en el guardrail
 
 `miners.tools` forma parte de la superficie **estable** recomendada para automatización en `alpha`, no de una capa separada de benchmark.
 
-Por eso el baseline público también incluye el caso mínimo donde un modelo pequeño puede pasar por tools deterministas como:
+Por eso el futuro baseline público también deberá incluir el caso mínimo donde un modelo pequeño pase por tools deterministas como:
 
 - `inspect_model`
 - `validate_model`
@@ -65,7 +65,7 @@ La lectura correcta es:
 - `miners.tools` cubre la variante product-facing para automatización y contratos estructurados;
 - ambos deben seguir llamando la misma lógica determinista del SDK, no rutas especiales benchmark-side.
 
-## Qué queda fuera de este baseline público
+## Qué queda fuera del futuro baseline público
 
 Este documento **no** redefine ni reemplaza:
 
@@ -75,13 +75,13 @@ Este documento **no** redefine ni reemplaza:
 
 Separación correcta:
 
-- `docs/references/public-performance-baseline.md`: baseline público de producto y guardrail de regresión;
+- `docs/references/public-performance-baseline.md`: especificación del guardrail de producto y de la baseline cuantitativa pendiente;
 - `benchmarks/`: investigación micro, costo relativo por operación y evolución técnica del core;
 - `examples/marvin-benchmark`: comparabilidad, diagnóstico benchmark-side y telemetría de runtime dependiente de máquina.
 
 En particular, `examples/marvin-benchmark` ya documenta explícitamente que sus tiempos de pared son **machine-dependent** y sirven para tracking del repo, no para comparaciones absolutas cross-machine. Esa lectura pertenece al frente benchmark-side, no al claim principal del SDK público.
 
-## Cómo interpretar este baseline
+## Cómo interpretar futuras mediciones
 
 La interpretación correcta es intencionalmente conservadora:
 
@@ -94,21 +94,22 @@ La interpretación correcta es intencionalmente conservadora:
 En otras palabras:
 
 ```text
-este baseline dice "el flujo público mínimo sigue sano";
+la futura baseline deberá decir "el flujo público mínimo sigue dentro del guardrail";
 no dice "mine-rs ya ganó una competencia universal de performance".
 ```
 
-## Baseline mínimo creíble soportado hoy
+## Criterio mínimo para cerrar MR-229
 
-La línea base más pequeña y honesta que el repo ya soporta públicamente es:
+La baseline cuantitativa mínima deberá medir de forma reproducible:
 
 1. cargar un `BlockModel` pequeño desde `pandas` o `numpy`;
 2. validarlo sin desviar la ruta normal del producto;
 3. correr analytics públicos básicos;
 4. exportarlo;
-5. ejecutar tools deterministas equivalentes sobre un modelo igual de pequeño.
+5. ejecutar tools deterministas equivalentes sobre un modelo igual de pequeño;
+6. registrar fixture, comando, entorno, tiempos y/o memoria, y umbrales de interpretación.
 
-Si ese baseline empeora de forma visible, el problema debe tratarse primero como regresión del producto `alpha`, incluso antes de discutir microbenchmarks o comparabilidad bibliográfica.
+Hasta que esos datos estén versionados, solo puede hablarse de salud funcional o de observaciones locales, no de una baseline pública cuantitativa cerrada. Una vez exista, una regresión deberá tratarse primero como regresión del producto `alpha`, antes de discutir comparabilidad bibliográfica.
 
 ## Relación con otros documentos
 

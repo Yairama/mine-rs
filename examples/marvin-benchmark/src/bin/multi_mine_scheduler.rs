@@ -6,6 +6,7 @@
 //! Si no se especifica `output_path`, el reporte se escribe en
 //! `datasets/benchmarks/outputs/multi-mine-scheduling-report.json`.
 //! Las rutas CLI relativas se rebasan contra la raíz del repo para evitar fallos sensibles al cwd.
+#![allow(clippy::too_many_arguments)]
 
 #[path = "../benchmark_blocks_support.rs"]
 mod benchmark_blocks_support;
@@ -574,9 +575,7 @@ fn build_lp_bz_competitive_empirical_driver_assessment(
         "round-repair-local-search-mismatch" => format!(
             "Empirical driver read selects round/repair/local-search mismatch as the dominant blocker because precedence coverage is cleared and budget depletion is not observed. {strategy_summary}"
         ),
-        _ => format!(
-            "Empirical driver read leaves only schedule-level proof: precedence coverage is cleared, budget depletion is not observed, and the benchmark-side round/repair/local-search mismatch no longer explains the residual."
-        ),
+        _ => "Empirical driver read leaves only schedule-level proof: precedence coverage is cleared, budget depletion is not observed, and the benchmark-side round/repair/local-search mismatch no longer explains the residual.".to_owned(),
     };
     let empirical_driver_evidence_summary = format!(
         "Empirical driver evidence statuses: precedence-coverage=`{}`, budget-depletion=`{}`, round-repair-local-search-mismatch=`{}`; dominant blocker=`{}`.",
@@ -802,6 +801,7 @@ struct DatasetConfig {
     literature_reference_instance: &'static str,
     same_literature_variant: bool,
     blocks_file: &'static str,
+    #[cfg_attr(not(test), allow(dead_code))]
     selected_block_source: &'static str,
     cpit_problem_file: &'static str,
     selected_block_solution_file: &'static str,
@@ -4395,10 +4395,8 @@ fn build_mclaughlin_limit_lp_bz_sidecar(
         discounted_objective_bound.map(|bound| bound - candidate_discounted_objective);
     let bound_to_reference_absolute_gap =
         discounted_objective_bound.map(|bound| bound - reference_discounted_objective);
-    let completeness_summary = format!(
-        "{}",
-        lp_bz_precedence_runtime_summary(&lp_solve_artifact.precedence_diagnostics)
-    );
+    let completeness_summary =
+        lp_bz_precedence_runtime_summary(&lp_solve_artifact.precedence_diagnostics).to_string();
     let sidecar_status = match (
         lp_solve_artifact.solve_status,
         lp_solve_artifact
@@ -5185,9 +5183,7 @@ fn summarize_lp_bz_ready_frontier_probe_next_step_evidence(
         .as_str();
 
     match next_step_evidence {
-        "need-schedule-level-ready-frontier-proof" => format!(
-            "The competitive probe proxy closes the measured ready_frontier gap, so the next benchmark-side evidence is a schedule-level ready_frontier comparison before claiming competitive parity."
-        ),
+        "need-schedule-level-ready-frontier-proof" => "The competitive probe proxy closes the measured ready_frontier gap, so the next benchmark-side evidence is a schedule-level ready_frontier comparison before claiming competitive parity.".to_owned(),
         "need-new-candidate-evidence-beyond-current-probe" => format!(
             "Residual ready_frontier gap {:.6} remains after the current probe exhausted its headroom, so the next evidence must come from a stronger candidate path than the current probe.",
             residual_ready_frontier_gap
@@ -9207,6 +9203,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "heavy Marvin LP/BZ integration; run explicitly with --ignored"]
     fn marvin_lp_bz_sidecar_builder_uses_pushback_bench_localized_cut_units() {
         let config = &DATASETS[0];
         let repo_root = repo_root_path()
@@ -9222,7 +9219,7 @@ mod tests {
         let linear_index_to_row_index =
             build_linear_index_to_row_index(&model).expect("linear index lookup should build");
         let selected_solution = read_minelib_cpit_solution(
-            &references_dir.join(config.selected_block_solution_file),
+            references_dir.join(config.selected_block_solution_file),
             &model,
         )
         .expect("cpit reference should load");
@@ -9232,20 +9229,18 @@ mod tests {
             .filter(|assignment| assignment.fraction > 1.0e-9)
             .count();
         let precedence_graph =
-            read_minelib_precedence_graph(&references_dir.join(config.precedence_file), &model)
+            read_minelib_precedence_graph(references_dir.join(config.precedence_file), &model)
                 .expect("precedence graph should load");
-        let upit_block_values = read_minelib_upit_block_values(
-            &references_dir.join(config.upit_objective_file),
-            &model,
-        )
-        .expect("upit objective should load")
-        .into_iter()
-        .collect::<BTreeMap<_, _>>();
+        let upit_block_values =
+            read_minelib_upit_block_values(references_dir.join(config.upit_objective_file), &model)
+                .expect("upit objective should load")
+                .into_iter()
+                .collect::<BTreeMap<_, _>>();
         let pcpsp_problem =
-            read_minelib_pcpsp_problem(&references_dir.join(config.pcpsp_problem_file), &model)
+            read_minelib_pcpsp_problem(references_dir.join(config.pcpsp_problem_file), &model)
                 .expect("pcpsp problem should load");
         let pcpsp_solution =
-            read_minelib_pcpsp_solution(&references_dir.join(config.pcpsp_solution_file), &model)
+            read_minelib_pcpsp_solution(references_dir.join(config.pcpsp_solution_file), &model)
                 .expect("pcpsp solution should load");
         let tonnage_column =
             ColumnId::new(config.tonnage_column).expect("tonnage column id should be valid");

@@ -2319,7 +2319,7 @@ fn solve_decomposed_scheduling_problem_returns_candidate_bound_and_stockpile_adj
             .period_flows
             .iter()
             .find(|period| period.period_label == "P2")
-            .and_then(|period| period.stockpile_reclaims.get("sp-main").map(|value| *value)),
+            .and_then(|period| period.stockpile_reclaims.get("sp-main").copied()),
         Some(40.0)
     );
 }

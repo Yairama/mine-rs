@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 #[path = "../src/benchmark_blocks_support.rs"]
 mod benchmark_blocks_support;
 
@@ -48,6 +50,7 @@ fn load_staged_marvin_blocks_as_sparse_model() {
 }
 
 #[test]
+#[ignore = "requires ignored external mclaughlin-limit benchmark assets"]
 fn load_staged_mclaughlin_limit_blocks_as_sparse_model() {
     let model = read_benchmark_blocks(
         benchmark_blocks_path("mclaughlin-limit", "mclaughlin_limit.blocks"),
@@ -67,7 +70,7 @@ fn load_staged_mclaughlin_limit_blocks_as_sparse_model() {
 }
 
 #[test]
-#[ignore = "heavy benchmark fixture"]
+#[ignore = "requires ignored external heavy mclaughlin benchmark assets"]
 fn load_staged_mclaughlin_blocks_as_sparse_model() {
     let model = read_benchmark_blocks(
         benchmark_blocks_path("mclaughlin", "mclaughlin.blocks"),

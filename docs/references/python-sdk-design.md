@@ -28,22 +28,23 @@ La capa Python no debe depender de la capa agentica. Los agentes pueden depender
 
 ## Contrato local soportado para instalación y validación
 
-Mientras el SDK siga en etapa `alpha`, el camino soportado para contributors debe ser único y reproducible:
+Mientras el SDK siga en etapa `alpha`, el camino soportado para contributors debe reproducir el job Python de CI:
 
 1. crear un `venv` limpio con Python `>=3.11`;
-2. instalar o actualizar `pip` y `maturin` dentro de ese mismo entorno;
-3. ejecutar `python -m maturin develop` desde la raíz del repo;
-4. validar con `python -m unittest discover -s tests -p "test_python_*.py"`.
+2. actualizar `pip` e instalar el proyecto con `python -m pip install --upgrade --editable ".[test]"`;
+3. validar tipos con `python -m mypy --strict --no-incremental tests/typecheck_python_public.py` y `python -m mypy.stubtest miners`;
+4. ejecutar `python -m pytest tests`.
 
 Este contrato local debe comunicar con claridad qué queda validado:
 
 - el módulo nativo de `mine-python` compila e instala correctamente;
 - el paquete público `miners` resuelve sus dependencias mínimas declaradas;
-- la superficie de import recomendada en la raíz `miners` sigue usable para el workflow público `load -> validate -> analyze -> export`, sin obligar al contributor a conocer rutas internas del repo.
+- la superficie recomendada en la raíz `miners`, incluido IO, indexing y reblocking, sigue usable sin obligar al contributor a conocer rutas internas del repo;
+- los stubs públicos coinciden con el módulo instalado.
 
 Si una contribución rompe este flujo, debe tratarse como regresión del SDK Python alpha aunque el core Rust siga compilando.
 
-Por ahora, este contrato **no** equivale a una política completa de wheels, publishing o releases, y tampoco adelanta la futura exposición de `miners.tools`.
+La instalación editable invoca el backend Maturin declarado en `pyproject.toml`; no hace falta instalar ni ejecutar `maturin` por separado. Este contrato **no** equivale a una política completa de wheels, publishing o releases. `miners.tools` ya está expuesto y se valida en la misma suite, pero no implica una capa agentica.
 
 > La guía de UX y workflow de este documento se mantiene separada de la política de versionado y releases `0.x`; para esas garantías exactas, ver [`alpha-release-policy.md`](alpha-release-policy.md).
 
@@ -51,10 +52,11 @@ Por ahora, este contrato **no** equivale a una política completa de wheels, pub
 
 Mientras `mine-rs` siga consolidando su API `alpha`, la documentación pública debe promover un único camino ejecutable y reconocible:
 
-1. `load_from_pandas(...)` o `load_from_numpy(...)`
-2. `validate()`
-3. `summary()` / `basic_statistics()` / `grouped_statistics()` / `grade_tonnage()`
-4. `export_to_pandas(...)` o `export_to_numpy(...)`
+1. cargar con `read_csv(...)`, `read_parquet(...)`, `load_from_pandas(...)` o `load_from_numpy(...)`;
+2. usar `GridDefinition.xyz_to_ijk(...)`, `ijk_to_xyz(...)`, `ijk_to_linear(...)` o `linear_to_ijk(...)` cuando haga falta indexing;
+3. ejecutar `validate()` y `summary()` / `basic_statistics()` / `grouped_statistics()` / `grade_tonnage()`;
+4. aplicar `AggregationRule` + `superblock(...)` o `DistributionRule` + `subblock(...)` cuando cambie la resolución;
+5. escribir con `write_csv(...)`, `write_parquet(...)`, `export_to_pandas(...)` o `export_to_numpy(...)`.
 
 Este flujo prioriza discoverability y ergonomía notebook-first sin esconder supuestos mineros críticos. La carga y exportación viven como helpers públicos en `miners`; el análisis y la validación viven como métodos explícitos de `BlockModel`.
 
@@ -143,13 +145,7 @@ grid = GridDefinition(
     shape=(100, 80, 40),
 )
 
-model = BlockModel.read_csv(
-    "blocks.csv",
-    grid=grid,
-    x="x",
-    y="y",
-    z="z",
-)
+model = BlockModel.open_dataset("s3://bucket/blocks/")
 
 report = model.validate()
 report.raise_on_errors()
@@ -206,9 +202,22 @@ Usos esperados:
 
 La API debe evitar exponer memoria de forma insegura. Si existe zero-copy parcial, debe documentarse claramente.
 
+## IO, indexing y reblocking actuales
+
+La raíz `miners` expone actualmente `read_csv(...)`, `write_csv(...)`, `read_parquet(...)` y `write_parquet(...)`. CSV requiere grilla y schema explícitos al leer; su writer rechaza modelos sparse porque el reader actual no reconstruye ese layout. Parquet preserva grilla, schema y metadata mediante `mine-io`.
+
+`GridDefinition` expone las conversiones `xyz_to_ijk(...)`, `ijk_to_xyz(...)`, `ijk_to_linear(...)` y `linear_to_ijk(...)`, incluidas grillas con rotación soportada por el core.
+
+El reblocking público usa reglas declarativas construidas en Python y ejecutadas en Rust:
+
+- `AggregationRule` con `superblock(...)`;
+- `DistributionRule` con `subblock(...)`.
+
+Las reglas rechazan combinaciones que corromperían semántica minera conocida, como sumar una ley intensiva, dividir una ley entre subbloques o replicar tonelaje conservativo.
+
 ## Interoperabilidad con Arrow y Parquet
 
-Arrow y Parquet son candidatos naturales para el almacenamiento columnar.
+Arrow es la base columnar del IO y Parquet ya está expuesto en Python mediante `read_parquet(...)` y `write_parquet(...)`.
 
 Objetivos:
 
@@ -252,11 +261,11 @@ Los mensajes deben explicar:
 Los reportes deben ser objetos, no strings sueltos.
 
 ```python
-# Ejemplo conceptual.
 report = model.validate()
 
-report.has_errors
-report.summary()
+report.has_errors()
+report.error_count()
+report.issues()
 report.to_json()
 report.to_pandas()
 ```
@@ -265,21 +274,20 @@ Esto facilita notebooks, agentes y pipelines.
 
 ## Tools desde Python
 
-Las tools deterministas pueden exponerse también desde Python:
+Las tools deterministas ya se exponen desde el namespace explícito `miners.tools`:
 
 ```python
-# Ejemplo conceptual.
 from miners.tools import inspect_model, grade_tonnage
 
-inspection = inspect_model({"path": "model.parquet"})
-curve = grade_tonnage({
-    "path": "model.parquet",
-    "grade": "cu",
-    "tonnage": "tonnes",
+inspection = inspect_model(model)
+curve = grade_tonnage(model, {
+    "grade_column": "cu",
+    "tonnage_column": "tonnes",
+    "cutoffs": [0.3, 0.5, 0.7],
 })
 ```
 
-Este estilo ayuda a conectar el SDK con agentes que trabajan con JSON schemas.
+Este estilo sirve hoy para automatización con contratos estructurados y podrá alimentar agentes en el futuro; no implica que la capa agentica esté implementada.
 
 ## Diseño para agentes sin dañar la API humana
 
@@ -294,7 +302,7 @@ Ambas deben llamar al mismo core Rust para evitar divergencias.
 
 ## Documentación de ejemplos
 
-Cuando el SDK exista, la documentación Python debería incluir:
+La documentación Python actual debe incluir y mantener:
 
 - Cargar CSV.
 - Cargar Parquet.
@@ -302,15 +310,15 @@ Cuando el SDK exista, la documentación Python debería incluir:
 - Convertir coordenadas.
 - Calcular curva ley-tonelaje.
 - Rebloquear.
-- Exportar a VTK.
+- Exportar a pandas/numpy y escribir CSV/Parquet.
 - Crear escenario simple.
 - Invocar tools.
 
 ## Criterios de aceptación de la capa Python
 
 - Una persona puede instalar el paquete y cargar un modelo simple.
-- El flujo soportado para contributors (`venv -> maturin develop -> unittest`) está documentado y es reproducible.
-- El workflow público recomendado (`load -> validate -> analyze -> export`) está documentado y distingue con claridad la superficie experimental en `miners.experimental`.
+- El flujo soportado para contributors (`venv -> pip install -e .[test] -> mypy/stubtest -> pytest`) está documentado y es reproducible.
+- El workflow público recomendado cubre IO CSV/Parquet, pandas/numpy, indexing, validación/analytics, reblocking y exportación, y distingue con claridad la superficie experimental en `miners.experimental`.
 - `README.md` y `examples/python/` funcionan juntos como entrypoint ejecutable para usuarios Python, sin mezclar ejemplos conceptuales con la superficie recomendada.
 - Los errores son comprensibles.
 - Los outputs pueden convertirse a pandas o JSON.

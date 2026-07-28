@@ -177,7 +177,7 @@ pub fn regularize_block_support(
 
     Ok(BlockSupportRegularization {
         block_center,
-        block_dimensions: block_dimensions.clone(),
+        block_dimensions: *block_dimensions,
         discretization_point_count: discretization.total_points(),
         block_to_block_covariance,
         total_sill: variogram_model.total_sill(),
@@ -193,8 +193,6 @@ fn euclidean_distance(a: Coordinate3D, b: Coordinate3D) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
     use mine_core::{BlockDimensions, Coordinate3D};
 
     use super::*;

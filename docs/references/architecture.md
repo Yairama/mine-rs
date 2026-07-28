@@ -1,6 +1,6 @@
 # Arquitectura
 
-`mine-rs` debe evolucionar hacia una arquitectura por capas donde el core determinista vive en Rust, la experiencia de usuario principal vive en Python y la capa agentica se construye encima como un orquestador de tools.
+`mine-rs` evoluciona como una arquitectura por capas donde el core determinista vive en Rust y la experiencia de usuario principal vive en Python. La capa agentica es un objetivo pospuesto y no implementado; solo podrá construirse encima como orquestador después de estabilizar tools, Python, contratos de artefactos/VFS y disciplina de releases.
 
 ## Arquitectura conceptual
 
@@ -59,6 +59,8 @@ La capa Python debe minimizar lógica crítica propia. Cuando una operación min
 
 ### Agentic Layer
 
+Estado actual: no implementada. Las responsabilidades siguientes son objetivo de diseño, no superficie disponible.
+
 Responsable de:
 
 - Interpretar objetivos del usuario.
@@ -107,7 +109,7 @@ Esta estructura debe adoptarse gradualmente. En una etapa temprana, puede ser v�
 
 ### Crate SDK
 
-`mine-sdk` debe ser la fachada Rust pública. Su función es reexportar capacidades de los crates internos y ofrecer una API estable para usuarios Rust, bindings Python, CLI y tools.
+`mine-sdk` debe ser la fachada Rust pública. Su función es reexportar capacidades de los crates internos y ofrecer una entrada recomendada para usuarios Rust, bindings Python, CLI y tools. La madurez se clasifica por superficie: los contratos básicos de planning no convierten automáticamente TopoSort, LP/BZ, pseudoflow paramétrico, pushbacks/cuts o scheduling avanzado en APIs estables.
 
 Las capas superiores no deberían depender directamente de todos los crates internos si pueden depender de `mine-sdk`.
 

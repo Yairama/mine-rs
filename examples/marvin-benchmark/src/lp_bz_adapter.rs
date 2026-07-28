@@ -3,6 +3,7 @@
 //! Está pensado para reuso interno desde otros bins del paquete `marvin-benchmark`
 //! sin exponer artefactos grandes del kernel o del rounder.
 #![allow(dead_code)]
+#![allow(clippy::too_many_arguments)]
 
 use std::collections::BTreeSet;
 use std::path::Path;

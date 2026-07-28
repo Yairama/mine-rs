@@ -24,11 +24,14 @@ Para el detalle narrativo, ver `docs/references/sdk-alpha-scope.md`. Para el fre
 
 | Grupo de superficie | Bucket | Incluye hoy | Lectura correcta |
 | --- | --- | --- | --- |
-| Rust core recomendado | **estable** | `mine-sdk` como entrada pública y sus módulos de dominio recomendados (`core`, `blockmodel`, `io`, `validation`, `economics`, `planning`, `reblock`) | Es la ruta Rust recomendada para consumo técnico del SDK. |
-| Python recomendado | **estable** | `miners` como paquete público raíz y el workflow `load -> validate -> analyze -> export` | Es la ruta Python recomendada para notebooks, scripts y adopción general. |
+| Rust core recomendado | **estable** | `mine-sdk` como entrada pública para core, `BlockModel`, indexing, IO, validación, analytics, economía base y reblocking | Es la ruta Rust recomendada para consumo técnico del SDK alpha. La estabilidad es de la superficie listada, no de cada símbolo reexportado. |
+| Planning básico y contratos | **estable** | bancos y phase tagging básicos, `MiningScenario`, `PrecedenceGraph`, `Schedule` y reportes/contratos serializables asociados | Pueden usarse como primitives auditables con restricciones explícitas; esta clasificación no promueve todo `mine_sdk::planning`. |
+| Python recomendado | **estable** | `miners`: pandas/numpy, `read_csv`/`write_csv`, `read_parquet`/`write_parquet`, indexing de `GridDefinition`, validación/analytics, `AggregationRule`/`DistributionRule` y `superblock`/`subblock` | Es la ruta Python recomendada para notebooks, scripts y adopción general en alpha. |
 | Tools recomendadas | **estable** | `miners.tools` y las tools deterministas públicas ya expuestas | Forma parte de la superficie de automatización recomendada del SDK actual. |
-| Experimental / opt-in | **experimental** | `mine_sdk::experimental`, `miners.experimental` y bridges o wrappers deprecados mantenidos solo por compatibilidad transitoria | Puede usarse de forma explícita, pero no debe presentarse como camino principal ni como contrato estabilizado. |
-| Benchmark-side / investigación | **benchmark-side** | `examples/marvin-*`, `examples/stochastic-planning`, harnesses de benchmark y adaptadores de comparabilidad/investigación | Sirve para diagnóstico, reproducción bibliográfica y evolución técnica, no como superficie principal del SDK. |
+| Planning avanzado | **experimental** | TopoSort CPIT/PCPSP, bound Lagrangiano LP/BZ, pseudoflow paramétrico/shells optimizados, pushbacks, cuts y scheduling avanzado | Aunque parte del código esté reexportada por `mine-sdk`, sigue sujeta a validación algorítmica, performance y comparabilidad; no es contrato estable de producto. |
+| Experimental / opt-in | **experimental** | `mine_sdk::experimental`, `miners.experimental`, layouts sparse en evolución y wrappers deprecados mantenidos solo por compatibilidad transitoria | Puede usarse de forma explícita, pero no debe presentarse como camino principal ni como contrato estabilizado. |
+| Benchmark-side / investigación | **benchmark-side** | harnesses y adaptadores Marvin/MineLib/McLaughlin, LP/BZ sidecars, cuts y scheduling paper-comparable, `examples/stochastic-planning` y reportes generados de comparabilidad | Sirve para diagnóstico, reproducción bibliográfica y evolución técnica, no como superficie principal del SDK. |
+| Capa agentica | **no implementada / pospuesta** | diseño de VFS, task tools, subagents y verifier | No existe runtime ni paquete agentico actual. Se pospone hasta estabilizar tools, Python, artefactos/VFS y disciplina de releases. |
 
 ## Regla práctica de comunicación
 
@@ -38,7 +41,7 @@ Si cae en **experimental**, debe etiquetarse como opt-in de forma explícita.
 
 Si cae en **benchmark-side**, debe explicarse como soporte de investigación o comparabilidad, no como ruta base de producto.
 
-La baseline pública de performance del SDK `alpha` debe leerse como guardrail de producto para la superficie **estable**; no reclasifica como estables los harnesses ni los artefactos benchmark-side.
+El documento público de performance define hoy un guardrail cualitativo para la superficie **estable**. No existe todavía baseline cuantitativa versionada (MR-229) y ese documento no reclasifica como estables los harnesses ni los artefactos benchmark-side.
 
 ## Relación con otros documentos
 

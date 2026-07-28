@@ -190,6 +190,71 @@ mod tests {
     }
 
     #[test]
+    fn reject_sum_on_intensive_grade_column() {
+        let rules = AggregationRules::new(vec![AggregationRule::sum(
+            ColumnId::new("cu_total").expect("column should be valid"),
+            ColumnId::new("cu").expect("column should be valid"),
+        )])
+        .expect("rules should be valid");
+
+        let error = rules
+            .validate_against_schema(&sample_schema())
+            .expect_err("summing an intensive grade should fail");
+
+        assert!(
+            error
+                .to_string()
+                .contains("use an explicit weighted average")
+        );
+    }
+
+    #[test]
+    fn reject_weighted_average_on_conservative_tonnage_column() {
+        let rules = AggregationRules::new(vec![AggregationRule::weighted_average(
+            ColumnId::new("tonnes").expect("column should be valid"),
+            ColumnId::new("tonnes").expect("column should be valid"),
+            ColumnId::new("tonnes").expect("column should be valid"),
+        )])
+        .expect("rules should be valid");
+
+        let error = rules
+            .validate_against_schema(&sample_schema())
+            .expect_err("averaging tonnage should fail");
+
+        assert!(error.to_string().contains("use sum"));
+    }
+
+    #[test]
+    fn reject_split_on_intensive_grade_column() {
+        let rules = DistributionRules::new(vec![DistributionRule::split_equally(
+            ColumnId::new("cu").expect("column should be valid"),
+            ColumnId::new("cu").expect("column should be valid"),
+        )])
+        .expect("rules should be valid");
+
+        let error = rules
+            .validate_against_schema(&sample_schema())
+            .expect_err("splitting an intensive grade should fail");
+
+        assert!(error.to_string().contains("use replicate"));
+    }
+
+    #[test]
+    fn reject_replicating_conservative_tonnage_column() {
+        let rules = DistributionRules::new(vec![DistributionRule::replicate(
+            ColumnId::new("tonnes").expect("column should be valid"),
+            ColumnId::new("tonnes").expect("column should be valid"),
+        )])
+        .expect("rules should be valid");
+
+        let error = rules
+            .validate_against_schema(&sample_schema())
+            .expect_err("replicating tonnage should fail");
+
+        assert!(error.to_string().contains("use split_equally"));
+    }
+
+    #[test]
     fn reject_majority_on_float_column() {
         let rules = AggregationRules::new(vec![AggregationRule::majority(
             ColumnId::new("cu_mode").expect("column should be valid"),

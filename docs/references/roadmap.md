@@ -215,7 +215,9 @@ Las capacidades del SDK pueden invocarse mediante contratos estructurados.
 
 ## Fase 12: Capa agentica
 
-Objetivo: construir agentes que orquesten tools del SDK.
+Estado: pospuesta y no implementada.
+
+Objetivo futuro: construir agentes que orquesten tools del SDK únicamente después de estabilizar tools deterministas, SDK Python, contratos de artefactos/VFS y disciplina de releases.
 
 Entregables esperados:
 
@@ -237,7 +239,7 @@ Un usuario puede pedir análisis complejos en lenguaje natural y recibir resulta
 
 ## Dependencia estratégica
 
-La capa agentica debe esperar a que existan suficientes tools deterministas. Construir agentes antes de tener un SDK sólido aumenta el riesgo de resultados no verificables.
+La capa agentica debe esperar no solo a que existan suficientes tools deterministas, sino a que estén estabilizados el SDK Python, los contratos de artefactos/VFS y la disciplina de releases. Construir agentes antes de cerrar esas dependencias aumenta el riesgo de resultados no verificables.
 
 ## Ruta end-to-end basada en literatura
 

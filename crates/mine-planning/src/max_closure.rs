@@ -93,7 +93,6 @@ pub struct MaxClosureGraph {
 
 impl MaxClosureGraph {
     /// Retorna los arcos de fuente.
-    #[must_use]
     pub fn source_arcs(&self) -> impl Iterator<Item = &MaxClosureArc> {
         self.arcs
             .iter()
@@ -101,13 +100,11 @@ impl MaxClosureGraph {
     }
 
     /// Retorna los arcos de sumidero.
-    #[must_use]
     pub fn sink_arcs(&self) -> impl Iterator<Item = &MaxClosureArc> {
         self.arcs.iter().filter(|a| a.to == MaxClosureNodeId::Sink)
     }
 
     /// Retorna los arcos de precedencia.
-    #[must_use]
     pub fn precedence_arcs(&self) -> impl Iterator<Item = &MaxClosureArc> {
         self.arcs
             .iter()

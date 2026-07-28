@@ -127,9 +127,9 @@ import miners
 
 ### `python/mine-agents`
 
-Paquete agentico separado.
+Paquete agentico separado objetivo; no está implementado.
 
-Debe vivir separado del SDK Python humano para evitar mezclar dependencias de LLM, LangGraph/LangChain, VFS y orchestration con la librería base.
+Cuando se implemente, deberá vivir separado del SDK Python humano para evitar mezclar dependencias de LLM, LangGraph/LangChain, VFS y orchestration con la librería base. Ese trabajo está pospuesto hasta estabilizar tools, Python, artefactos/VFS y disciplina de releases.
 
 La capa agentica debería depender de:
 

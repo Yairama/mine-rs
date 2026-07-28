@@ -128,7 +128,9 @@ La capa Python no debe duplicar la lógica crítica si ya existe en Rust. Debe e
 
 ## Qué entra en la capa agentica
 
-La capa agentica debe construirse sobre el SDK, no dentro del core minero.
+Estado actual: no implementada y explícitamente pospuesta hasta estabilizar tools, SDK Python, contratos de artefactos/VFS y disciplina de releases.
+
+Cuando se implemente, la capa agentica deberá construirse sobre el SDK, no dentro del core minero.
 
 Debe encargarse de:
 
@@ -185,7 +187,7 @@ Un MVP útil para ingenieros debería permitir:
 7. Exportar resultados.
 8. Usar todo desde Python.
 
-La capa agentica puede empezar con tools sobre este MVP:
+Una futura capa agentica podrá empezar con tools sobre este MVP, una vez cerradas las dependencias de estabilización anteriores:
 
 - `inspect_model`.
 - `validate_model`.

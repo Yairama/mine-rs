@@ -5,6 +5,7 @@
 //! - construcción opcional del schedule usando helpers del SDK para preservar
 //!   verificaciones de factibilidad de precedencia y recursos.
 #![allow(dead_code)]
+#![allow(clippy::too_many_arguments)]
 
 use std::collections::BTreeMap;
 
@@ -523,7 +524,7 @@ fn round_and_repair_phase_target_periods_from_representatives(
                 .copied();
             let representative_period =
                 effective_phase_representative_period(legacy_representative_period, phase_signal);
-            let phase_signal = phase_signal.unwrap_or_else(|| LpPhaseFractionalSignal {
+            let phase_signal = phase_signal.unwrap_or(LpPhaseFractionalSignal {
                 representative_period,
                 lower_mass_share: 0.0,
                 upper_mass_share: 0.0,
@@ -2427,7 +2428,7 @@ fn round_period_index_with_signal(
         return base_period;
     }
     let fractional_part = (representative_period - base_period as f64).clamp(0.0, 1.0);
-    let rounded_with_signal = phase_signal.map_or_else(
+    phase_signal.map_or_else(
         || round_period_index(representative_period),
         |signal| {
             let lower_signal = (signal.lower_mass_share + signal.floor_mass_share)
@@ -2442,8 +2443,7 @@ fn round_period_index_with_signal(
                 base_period
             }
         },
-    );
-    rounded_with_signal
+    )
 }
 
 fn sort_ready_phase_ids(

@@ -22,6 +22,12 @@ pub(crate) struct PyBlockModel {
     pub(crate) inner: BlockModel,
 }
 
+impl PyBlockModel {
+    pub(crate) fn new_inner(inner: BlockModel) -> Self {
+        Self { inner }
+    }
+}
+
 #[pymethods]
 impl PyBlockModel {
     #[staticmethod]
@@ -230,7 +236,7 @@ impl PyBlockModel {
     }
 }
 
-fn build_metadata(
+pub(crate) fn build_metadata(
     metadata: Option<HashMap<String, String>>,
 ) -> Result<Metadata, mine_sdk::MineError> {
     Metadata::from_entries(

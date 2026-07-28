@@ -5,6 +5,8 @@ mod analytics;
 mod binding;
 mod blockmodel;
 mod core;
+mod io;
+mod reblock;
 mod tools;
 mod validation;
 
@@ -29,6 +31,8 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;
     binding::register(module)?;
     core::register(module)?;
+    io::register(module)?;
+    reblock::register(module)?;
     analytics::register(module)?;
     tools::register(module)?;
     validation::register(module)?;

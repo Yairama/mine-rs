@@ -83,13 +83,11 @@ pub fn solve_upl_exact(closure_graph: &MaxClosureGraph) -> Result<UplSolverResul
     node_ids.push(MaxClosureNodeId::Sink);
     node_map.insert(MaxClosureNodeId::Sink, 1);
 
-    for (&linear_index, _) in &closure_graph.block_weights {
+    for &linear_index in closure_graph.block_weights.keys() {
         let node_id = MaxClosureNodeId::Block(linear_index);
-        if !node_map.contains_key(&node_id) {
-            let idx = node_ids.len();
-            node_ids.push(node_id.clone());
-            node_map.insert(node_id, idx);
-        }
+        let idx = node_ids.len();
+        node_ids.push(node_id.clone());
+        node_map.insert(node_id, idx);
     }
 
     let n = node_ids.len();
@@ -147,12 +145,12 @@ pub fn solve_upl_exact(closure_graph: &MaxClosureGraph) -> Result<UplSolverResul
     let mut selected_blocks: Vec<usize> = Vec::new();
     let mut pit_value = 0.0_f64;
     for (node_idx, node_id) in node_ids.iter().enumerate() {
-        if let MaxClosureNodeId::Block(linear_index) = node_id {
-            if reachable[node_idx] {
-                selected_blocks.push(*linear_index);
-                if let Some(&w) = closure_graph.block_weights.get(linear_index) {
-                    pit_value += w;
-                }
+        if let MaxClosureNodeId::Block(linear_index) = node_id
+            && reachable[node_idx]
+        {
+            selected_blocks.push(*linear_index);
+            if let Some(&w) = closure_graph.block_weights.get(linear_index) {
+                pit_value += w;
             }
         }
     }

@@ -36,3 +36,33 @@ jobs:
 
       - name: Run tests
         run: cargo nextest run --workspace
+
+  python:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build and install miners
+        run: python -m pip install --upgrade --editable ".[test]"
+
+      - name: Check public Python types
+        run: |
+          python -m mypy --strict --no-incremental tests/typecheck_python_public.py
+          python -m mypy.stubtest miners
+
+      - name: Run Python tests
+        run: python -m pytest tests

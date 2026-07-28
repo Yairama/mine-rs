@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 #[path = "../src/lp_bz_adapter.rs"]
 mod lp_bz_adapter;
 #[path = "../src/lp_bz_bound.rs"]
@@ -37,8 +39,8 @@ fn marvin_adapter_returns_compact_summary_and_real_focused_optimizer_limitation(
         &scheduling_problem,
         &marvin_problem,
         &lp_solution,
-        Path::new("C:\\repo\\datasets\\marvin.LPpcpsp"),
-        Path::new("C:\\repo"),
+        Path::new("repo/datasets/marvin.LPpcpsp"),
+        Path::new("repo"),
         "marvin-test-local-front-phase",
         None,
         Metadata::new(),

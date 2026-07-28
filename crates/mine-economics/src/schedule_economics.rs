@@ -28,9 +28,9 @@ pub(crate) struct PhaseEconomicSummary {
     pub(crate) payable_metal: BTreeMap<String, f64>,
 }
 
-pub(crate) fn build_grade_column_slices<'a>(
-    economic_model: &'a EconomicBlockModel,
-) -> Result<BTreeMap<String, &'a [f64]>, MineError> {
+pub(crate) fn build_grade_column_slices(
+    economic_model: &EconomicBlockModel,
+) -> Result<BTreeMap<String, &[f64]>, MineError> {
     economic_model
         .grade_columns()
         .iter()
@@ -733,6 +733,7 @@ pub struct ScenarioComparisonReport {
 }
 
 /// Ejecuta un pack de sensibilidad sobre el scheduler agregado y la evaluación económica.
+#[allow(clippy::too_many_arguments)]
 pub fn evaluate_long_term_schedule_sensitivity_pack(
     scenario_id: ScenarioId,
     model_id: ModelId,

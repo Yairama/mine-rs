@@ -527,11 +527,11 @@ pub fn compute_pcpsp_lagrangian_bound(
         for (position, linear) in blocks.iter().enumerate() {
             let values = &problem.block_values[linear];
             let usage_matrix = problem.block_resource_usage.get(linear);
-            for period in 0..period_count {
+            for (period, &discount_factor) in discount_factors.iter().enumerate() {
                 let mut best_value = f64::NEG_INFINITY;
                 let mut best_destination = 0usize;
                 for (destination, &value) in values.iter().enumerate() {
-                    let mut adjusted = value * discount_factors[period];
+                    let mut adjusted = value * discount_factor;
                     if let Some(matrix) = usage_matrix {
                         for (resource, amount) in matrix[destination].iter().enumerate() {
                             if let Some(&multiplier_index) =

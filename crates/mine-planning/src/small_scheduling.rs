@@ -963,12 +963,14 @@ type ObjectiveIndex = BTreeMap<SchedulingUnitId, BTreeMap<Option<ScheduleDestina
 type RequirementIndex =
     BTreeMap<SchedulingUnitId, Vec<(SchedulingResourceId, Option<ScheduleDestinationId>, f64)>>;
 type StockpileInventoryLimitIndex = Vec<BTreeMap<ScheduleStockpileId, f64>>;
+type PeriodResourceLimit = BTreeMap<SchedulingResourceId, (Option<f64>, Option<f64>)>;
 
+#[allow(clippy::too_many_arguments)]
 fn search_exact_assignments(
     problem: &SchedulingProblem,
     sorted_unit_indices: &[usize],
     depth: usize,
-    period_resource_limits: &[BTreeMap<SchedulingResourceId, (Option<f64>, Option<f64>)>],
+    period_resource_limits: &[PeriodResourceLimit],
     objective_by_unit: &ObjectiveIndex,
     requirements_by_unit: &RequirementIndex,
     stockpile_opening_inventory: &BTreeMap<ScheduleStockpileId, f64>,
@@ -1564,7 +1566,7 @@ fn select_window_candidates(
     stockpile_future_inventory_limits: &StockpileInventoryLimitIndex,
     stockpile_reclaim_limits: &StockpileInventoryLimitIndex,
     usage_by_period: &[BTreeMap<SchedulingResourceId, f64>],
-    period_resource_limits: &[BTreeMap<SchedulingResourceId, (Option<f64>, Option<f64>)>],
+    period_resource_limits: &[PeriodResourceLimit],
     scheduled_period_by_unit: &BTreeMap<SchedulingUnitId, usize>,
 ) -> Vec<SchedulingUnitId> {
     let mut ranked = problem
@@ -1680,6 +1682,7 @@ fn select_window_candidates(
         .collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn best_candidate_for_unit(
     problem: &SchedulingProblem,
     unit: &SchedulingUnit,
@@ -1691,7 +1694,7 @@ fn best_candidate_for_unit(
     stockpile_future_inventory_limits: &StockpileInventoryLimitIndex,
     stockpile_reclaim_limits: &StockpileInventoryLimitIndex,
     usage_by_period: &[BTreeMap<SchedulingResourceId, f64>],
-    period_resource_limits: &[BTreeMap<SchedulingResourceId, (Option<f64>, Option<f64>)>],
+    period_resource_limits: &[PeriodResourceLimit],
 ) -> Option<FrontierCandidate> {
     build_unit_options(unit, objective_by_unit, requirements_by_unit)
         .into_iter()
@@ -1977,7 +1980,6 @@ fn build_unit_options(
             .iter()
             .cloned()
             .flat_map(|stockpile_id| {
-                let objective_terms = objective_terms;
                 destination_scope_for_reclaim(unit, requirements_by_unit, objective_by_unit)
                     .into_iter()
                     .map(move |destination_id| {
@@ -2141,6 +2143,7 @@ fn build_future_stockpile_inventory_limits(
     future_limits
 }
 
+#[allow(clippy::too_many_arguments)]
 fn fits_stockpile_inventory_bounds(
     period_index: usize,
     inventory_delta_tonnage: f64,
@@ -2300,7 +2303,7 @@ fn fits_upper_bounds(
     period_index: usize,
     requirements: &[(SchedulingResourceId, f64)],
     usage_by_period: &[BTreeMap<SchedulingResourceId, f64>],
-    period_resource_limits: &[BTreeMap<SchedulingResourceId, (Option<f64>, Option<f64>)>],
+    period_resource_limits: &[PeriodResourceLimit],
 ) -> bool {
     requirements.iter().all(|(resource_id, amount)| {
         let Some((_, max_total)) = period_resource_limits[period_index].get(resource_id) else {
@@ -2330,7 +2333,7 @@ fn apply_requirements(
 
 fn period_lower_bounds_satisfied(
     usage_by_period: &[BTreeMap<SchedulingResourceId, f64>],
-    period_resource_limits: &[BTreeMap<SchedulingResourceId, (Option<f64>, Option<f64>)>],
+    period_resource_limits: &[PeriodResourceLimit],
 ) -> bool {
     period_resource_limits
         .iter()
@@ -2351,7 +2354,7 @@ fn period_lower_bounds_satisfied(
 fn materialize_solution(
     problem: &SchedulingProblem,
     solution: SearchState,
-    period_resource_limits: &[BTreeMap<SchedulingResourceId, (Option<f64>, Option<f64>)>],
+    period_resource_limits: &[PeriodResourceLimit],
 ) -> SmallSchedulingSolution {
     let stockpile_delta_by_period = solution.assignments.iter().fold(
         vec![BTreeMap::<ScheduleStockpileId, f64>::new(); problem.periods().len()],

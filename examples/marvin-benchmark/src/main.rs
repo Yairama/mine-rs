@@ -7,6 +7,7 @@
 //! y el reporte se escribe en `datasets/benchmarks/marvin/outputs/comparison-report.json`.
 //! Las rutas CLI relativas se rebasan contra la raíz del repo para evitar fallos sensibles al cwd.
 //! Definir `MARVIN_BENCHMARK_PRINT_REPORT=1` replica el JSON a stdout solo cuando se necesite.
+#![allow(clippy::too_many_arguments)]
 
 mod benchmark_blocks_support;
 mod benchmark_path_policy;
@@ -4306,14 +4307,14 @@ fn build_lp_bz_period_band_refinement_diagnostics(
     let refined_localized_front_examples = localized_front_phase_plan
         .phases
         .iter()
-        .filter_map(|phase| {
-            (cut_count_by_localized_front
+        .filter(|phase| {
+            cut_count_by_localized_front
                 .get(&phase.phase_id)
                 .copied()
                 .unwrap_or(0)
-                > 1)
-            .then(|| phase.phase_id.clone())
+                > 1
         })
+        .map(|phase| phase.phase_id.clone())
         .take(8)
         .collect::<Vec<_>>();
     let localized_front_phase_count = localized_front_phase_plan.phase_count;
@@ -6890,12 +6891,12 @@ fn select_localized_planar_predecessors(
             )
         })
         .collect::<Vec<_>>();
-    if let Some(max_count) = max_local_predecessor_count {
-        if max_count > 0 && localized.len() > max_count {
-            localized
-                .sort_by(|left, right| left.1.cmp(&right.1).then_with(|| left.0.cmp(&right.0)));
-            localized.truncate(max_count);
-        }
+    if let Some(max_count) = max_local_predecessor_count
+        && max_count > 0
+        && localized.len() > max_count
+    {
+        localized.sort_by(|left, right| left.1.cmp(&right.1).then_with(|| left.0.cmp(&right.0)));
+        localized.truncate(max_count);
     }
     if localized.is_empty() {
         predecessor_components
@@ -8823,16 +8824,16 @@ fn select_effective_lp_bz_bound(
     native_lp_kernel_discounted_objective_bound: Option<f64>,
     candidate_discounted_objective: f64,
 ) -> (f64, String) {
-    if let Some(native_lp_bound) = native_lp_kernel_discounted_objective_bound {
-        if native_lp_bound.is_finite() && native_lp_bound + 1.0e-6 >= candidate_discounted_objective
-        {
-            return (
-                bound_artifact
-                    .discounted_objective_bound
-                    .min(native_lp_bound),
-                "min(native-resource-envelope, native-lp-kernel)".to_owned(),
-            );
-        }
+    if let Some(native_lp_bound) = native_lp_kernel_discounted_objective_bound
+        && native_lp_bound.is_finite()
+        && native_lp_bound + 1.0e-6 >= candidate_discounted_objective
+    {
+        return (
+            bound_artifact
+                .discounted_objective_bound
+                .min(native_lp_bound),
+            "min(native-resource-envelope, native-lp-kernel)".to_owned(),
+        );
     }
     (
         bound_artifact.discounted_objective_bound,
@@ -9486,12 +9487,12 @@ mod tests {
         )
         .expect("marvin blocks should load");
         let precedence_graph = marvin_support::read_marvin_precedence_graph(
-            benchmark_path("marvin", "references\\marvin.prec"),
+            benchmark_path("marvin", "references/marvin.prec"),
             &model,
         )
         .expect("marvin precedence should load");
         let pcpsp_problem = marvin_support::read_marvin_pcpsp_problem(
-            benchmark_path("marvin", "references\\marvin.pcpsp"),
+            benchmark_path("marvin", "references/marvin.pcpsp"),
             &model,
         )
         .expect("marvin pcpsp should load");
@@ -9542,17 +9543,17 @@ mod tests {
         )
         .expect("marvin blocks should load");
         let precedence_graph = marvin_support::read_marvin_precedence_graph(
-            benchmark_path("marvin", "references\\marvin.prec"),
+            benchmark_path("marvin", "references/marvin.prec"),
             &model,
         )
         .expect("marvin precedence should load");
         let pcpsp_problem = marvin_support::read_marvin_pcpsp_problem(
-            benchmark_path("marvin", "references\\marvin.pcpsp"),
+            benchmark_path("marvin", "references/marvin.pcpsp"),
             &model,
         )
         .expect("marvin pcpsp should load");
         let lp_pcpsp_solution = marvin_support::read_marvin_lp_pcpsp_solution(
-            benchmark_path("marvin", "references\\marvin.LPpcpsp"),
+            benchmark_path("marvin", "references/marvin.LPpcpsp"),
             &model,
         )
         .expect("marvin LPpcpsp should load");

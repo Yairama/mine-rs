@@ -565,7 +565,11 @@ pub fn summarize_marvin_schedule_solution(
             .entry(assignment.linear_index)
             .or_insert(0.0) += assignment.fraction;
 
-        for resource_index in 0..problem.resource_constraint_count {
+        for (resource_index, resource_usage) in period_resource_usage[assignment.period_index]
+            .iter_mut()
+            .enumerate()
+            .take(problem.resource_constraint_count)
+        {
             let coefficient = resource_lookup
                 .get(&(
                     assignment.linear_index,
@@ -574,8 +578,7 @@ pub fn summarize_marvin_schedule_solution(
                 ))
                 .copied()
                 .unwrap_or(0.0);
-            period_resource_usage[assignment.period_index][resource_index] +=
-                coefficient * assignment.fraction;
+            *resource_usage += coefficient * assignment.fraction;
         }
     }
 

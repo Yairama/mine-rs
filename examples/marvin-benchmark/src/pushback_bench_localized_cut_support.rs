@@ -1,20 +1,18 @@
+#![allow(dead_code)]
+#![allow(clippy::too_many_arguments)]
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::minelib_scheduling_support::MarvinPreferredNestedShellFamilyContract;
 use mine_sdk::{BlockModel, MineError, PhaseDesign, experimental::PushbackPlan, linear_to_ijk};
 use serde::Serialize;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum PushbackBenchLocalizedCutPredecessorLinkPolicy {
+    #[default]
     PredecessorLastCut,
     PredecessorFirstCut,
     AllPredecessorCuts,
-}
-
-impl Default for PushbackBenchLocalizedCutPredecessorLinkPolicy {
-    fn default() -> Self {
-        Self::PredecessorLastCut
-    }
 }
 
 impl PushbackBenchLocalizedCutPredecessorLinkPolicy {
@@ -27,8 +25,9 @@ impl PushbackBenchLocalizedCutPredecessorLinkPolicy {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub enum PushbackBenchLocalizedCutFrontProgression {
+    #[default]
     UniformTonnageBalanced,
     FixedThreeFrontCumulativeTargets {
         label: &'static str,
@@ -38,12 +37,6 @@ pub enum PushbackBenchLocalizedCutFrontProgression {
         label: &'static str,
         cumulative_tonnage_targets: [f64; 3],
     },
-}
-
-impl Default for PushbackBenchLocalizedCutFrontProgression {
-    fn default() -> Self {
-        Self::UniformTonnageBalanced
-    }
 }
 
 impl PushbackBenchLocalizedCutFrontProgression {
@@ -929,11 +922,10 @@ pub fn validate_promoted_pushback_bench_localized_cut_access_law_contract(
             "Promoted localized-cut access law structured bibliographic gap contract must stay aligned with flat missing terms; structured={structured_terms:?}, flat={flat_terms:?}."
         )));
     }
-    if summary
+    if !summary
         .ramp_access_contract
         .proxy_status
         .contains("benchmark-side partial proxy")
-        == false
     {
         return Err(MineError::validation(format!(
             "Promoted localized-cut access law must expose a benchmark-side partial ramp-access proxy, received `{}`.",
@@ -990,11 +982,10 @@ pub fn validate_promoted_pushback_bench_localized_cut_access_law_contract(
                 .to_owned(),
         ));
     }
-    if summary
+    if !summary
         .lineage_bench_continuity_contract
         .proxy_status
         .contains("benchmark-side partial proxy")
-        == false
     {
         return Err(MineError::validation(format!(
             "Promoted localized-cut access law must expose a benchmark-side partial lineage/bench-continuity proxy, received `{}`.",
@@ -1009,11 +1000,10 @@ pub fn validate_promoted_pushback_bench_localized_cut_access_law_contract(
             summary.lineage_bench_continuity_contract.parent_phase_scope
         )));
     }
-    if summary
+    if !summary
         .lineage_bench_continuity_contract
         .cut_phase_id_lineage_rule
         .contains("::pbcut-c")
-        == false
     {
         return Err(MineError::validation(
             "Lineage/bench-continuity contract must keep explicit `::pbcut-c` phase-id lineage."
@@ -1050,11 +1040,10 @@ pub fn validate_promoted_pushback_bench_localized_cut_access_law_contract(
             summary.intra_phase_progression.intra_component_activation
         )));
     }
-    if summary
+    if !summary
         .complete_cut_design_contract
         .proxy_status
         .contains("benchmark-side partial proxy")
-        == false
     {
         return Err(MineError::validation(format!(
             "Promoted localized-cut access law must expose a benchmark-side partial complete cut-design proxy, received `{}`.",
@@ -1122,33 +1111,30 @@ pub fn validate_promoted_pushback_bench_localized_cut_access_law_contract(
             summary.intra_phase_progression.front_progression
         )));
     }
-    if summary
+    if !summary
         .complete_cut_design_contract
         .ramp_access_contract_surface
         .contains("cut_access_law.ramp_access_contract")
-        == false
     {
         return Err(MineError::validation(
             "Complete cut-design contract must cite `cut_access_law.ramp_access_contract`."
                 .to_owned(),
         ));
     }
-    if summary
+    if !summary
         .complete_cut_design_contract
         .working_width_contract_surface
         .contains("cut_access_law.working_width_contract")
-        == false
     {
         return Err(MineError::validation(
             "Complete cut-design contract must cite `cut_access_law.working_width_contract`."
                 .to_owned(),
         ));
     }
-    if summary
+    if !summary
         .complete_cut_design_contract
         .lineage_bench_continuity_contract_surface
         .contains("cut_access_law.lineage_bench_continuity_contract")
-        == false
     {
         return Err(MineError::validation(
             "Complete cut-design contract must cite `cut_access_law.lineage_bench_continuity_contract`."
@@ -1196,10 +1182,9 @@ pub fn validate_promoted_pushback_bench_localized_cut_access_law_contract(
             ramp_access_gap.current_status
         )));
     }
-    if ramp_access_gap
+    if !ramp_access_gap
         .contract_surface
         .contains("ramp_access_contract")
-        == false
     {
         return Err(MineError::validation(
             "Ramp-access bibliographic gap must cite `cut_access_law.ramp_access_contract`."
@@ -1222,10 +1207,9 @@ pub fn validate_promoted_pushback_bench_localized_cut_access_law_contract(
             lineage_gap.current_status
         )));
     }
-    if lineage_gap
+    if !lineage_gap
         .contract_surface
         .contains("lineage_bench_continuity_contract")
-        == false
     {
         return Err(MineError::validation(
             "Lineage / bench-continuity bibliographic gap must cite `cut_access_law.lineage_bench_continuity_contract`."
@@ -1248,10 +1232,9 @@ pub fn validate_promoted_pushback_bench_localized_cut_access_law_contract(
             complete_cut_design_gap.current_status
         )));
     }
-    if complete_cut_design_gap
+    if !complete_cut_design_gap
         .contract_surface
         .contains("complete_cut_design_contract")
-        == false
     {
         return Err(MineError::validation(
             "Complete cut-design bibliographic gap must cite `cut_access_law.complete_cut_design_contract`."
@@ -1285,14 +1268,14 @@ fn build_pushback_bench_localized_cut_refinement_diagnostics(
     let refined_base_phase_examples = base_phase_plan
         .phases
         .iter()
-        .filter_map(|phase| {
-            (cut_count_by_base_phase
+        .filter(|phase| {
+            cut_count_by_base_phase
                 .get(&phase.phase_id)
                 .copied()
                 .unwrap_or(0)
-                > 1)
-            .then(|| phase.phase_id.clone())
+                > 1
         })
+        .map(|phase| phase.phase_id.clone())
         .take(8)
         .collect::<Vec<_>>();
     let refined_single_component_phase_examples = base_phase_plan
@@ -1850,12 +1833,12 @@ fn select_localized_planar_predecessors(
             )
         })
         .collect::<Vec<_>>();
-    if let Some(max_count) = max_local_predecessor_count {
-        if max_count > 0 && localized.len() > max_count {
-            localized
-                .sort_by(|left, right| left.1.cmp(&right.1).then_with(|| left.0.cmp(&right.0)));
-            localized.truncate(max_count);
-        }
+    if let Some(max_count) = max_local_predecessor_count
+        && max_count > 0
+        && localized.len() > max_count
+    {
+        localized.sort_by(|left, right| left.1.cmp(&right.1).then_with(|| left.0.cmp(&right.0)));
+        localized.truncate(max_count);
     }
     if localized.is_empty() {
         predecessor_components
@@ -2093,7 +2076,7 @@ fn pushback_bench_localized_cut_bibliographic_gap_contract(
         PushbackBenchLocalizedCutBibliographicGapSummary {
             gap_id: "ramp-access-sequencing".to_owned(),
             missing_term_label: "ramps / ramp access sequencing".to_owned(),
-            contract_surface: format!("{}", ramp_access_contract.contract_surface),
+            contract_surface: ramp_access_contract.contract_surface.to_string(),
             current_status: "benchmark-side-partial-proxy".to_owned(),
         },
         PushbackBenchLocalizedCutBibliographicGapSummary {
@@ -3236,12 +3219,12 @@ mod tests {
         )
         .expect("marvin blocks should load");
         let precedence_graph = marvin_support::read_marvin_precedence_graph(
-            benchmark_path("marvin", "references\\marvin.prec"),
+            benchmark_path("marvin", "references/marvin.prec"),
             &model,
         )
         .expect("marvin precedence should load");
         let pcpsp_problem = marvin_support::read_marvin_pcpsp_problem(
-            benchmark_path("marvin", "references\\marvin.pcpsp"),
+            benchmark_path("marvin", "references/marvin.pcpsp"),
             &model,
         )
         .expect("marvin pcpsp should load");

@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+#![allow(clippy::too_many_arguments, clippy::type_complexity)]
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use mine_sdk::MineError;
@@ -1134,7 +1137,7 @@ fn build_precedence_enforcement_plan(
         };
     }
 
-    let precedence_pair_count = (total_precedence_rows + period_count - 1) / period_count;
+    let precedence_pair_count = total_precedence_rows.div_ceil(period_count);
     let max_periods_for_row_budget =
         (PRECEDENCE_HYBRID_TARGET_ROW_LIMIT / precedence_pair_count).max(2);
     let target_checkpoint_count = period_count
@@ -1196,7 +1199,7 @@ fn build_variable_index(
     let mut indices_by_unit = BTreeMap::<String, Vec<usize>>::new();
     let mut indices_by_unit_period = BTreeMap::<(String, usize), Vec<usize>>::new();
 
-    for (unit_id, _) in units_by_id {
+    for unit_id in units_by_id.keys() {
         let destinations = unit_destination_ids.get(unit_id).ok_or_else(|| {
             MineError::validation(format!(
                 "LP/BZ kernel variable map is missing destination domain for unit `{unit_id}`"
@@ -1586,12 +1589,9 @@ fn build_access_artifact(
             .filter_map(|resource_id| {
                 let mut minimum_total_requirement = 0.0;
                 for closure_unit_id in &closure {
-                    let Some(requirement) = minimum_unit_resource_requirements
+                    let requirement = minimum_unit_resource_requirements
                         .get(&(closure_unit_id.clone(), resource_id.clone()))
-                        .copied()
-                    else {
-                        return None;
-                    };
+                        .copied()?;
                     minimum_total_requirement += requirement;
                 }
                 if minimum_total_requirement <= EPSILON {

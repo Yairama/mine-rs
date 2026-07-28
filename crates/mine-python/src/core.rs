@@ -1,11 +1,20 @@
 use mine_sdk::{
     BlockDimensions, ColumnId, ColumnLogicalType, ColumnMiningRole, ColumnSchema, Coordinate3D,
-    GridDefinition, GridShape, MeasurementUnit,
+    GridDefinition, GridShape, MeasurementUnit, MineError,
 };
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
 
 use crate::to_py_mine_error;
+
+fn non_negative_index(parameter: &'static str, value: i64) -> PyResult<usize> {
+    usize::try_from(value).map_err(|_| {
+        to_py_mine_error(MineError::invalid_parameter(
+            parameter,
+            "grid indices must be greater than or equal to zero",
+        ))
+    })
+}
 
 /// Coordenada tridimensional expuesta a Python.
 #[pyclass(module = "miners._native", name = "Coordinate3D")]
@@ -113,7 +122,7 @@ pub(crate) struct PyGridDefinition {
 }
 
 impl PyGridDefinition {
-    fn new_inner(inner: GridDefinition) -> Self {
+    pub(crate) fn new_inner(inner: GridDefinition) -> Self {
         Self { inner }
     }
 }
@@ -161,6 +170,48 @@ impl PyGridDefinition {
     #[getter]
     fn rotation_degrees(&self) -> Option<f64> {
         self.inner.rotation_degrees()
+    }
+
+    #[pyo3(signature = (coordinate, tolerance=1e-9))]
+    fn xyz_to_ijk(
+        &self,
+        coordinate: &PyCoordinate3D,
+        tolerance: f64,
+    ) -> PyResult<(usize, usize, usize)> {
+        let index = mine_sdk::xyz_to_ijk(&self.inner, coordinate.inner, tolerance)
+            .map_err(to_py_mine_error)?;
+        Ok((index.i(), index.j(), index.k()))
+    }
+
+    fn ijk_to_xyz(&self, index: (i64, i64, i64)) -> PyResult<PyCoordinate3D> {
+        let coordinate = mine_sdk::ijk_to_xyz(
+            &self.inner,
+            mine_sdk::GridIndex::new(
+                non_negative_index("i", index.0)?,
+                non_negative_index("j", index.1)?,
+                non_negative_index("k", index.2)?,
+            ),
+        )
+        .map_err(to_py_mine_error)?;
+        Ok(PyCoordinate3D::new_inner(coordinate))
+    }
+
+    fn ijk_to_linear(&self, index: (i64, i64, i64)) -> PyResult<usize> {
+        mine_sdk::ijk_to_linear(
+            &self.inner,
+            mine_sdk::GridIndex::new(
+                non_negative_index("i", index.0)?,
+                non_negative_index("j", index.1)?,
+                non_negative_index("k", index.2)?,
+            ),
+        )
+        .map_err(to_py_mine_error)
+    }
+
+    fn linear_to_ijk(&self, linear_index: i64) -> PyResult<(usize, usize, usize)> {
+        let linear_index = non_negative_index("linear_index", linear_index)?;
+        let index = mine_sdk::linear_to_ijk(&self.inner, linear_index).map_err(to_py_mine_error)?;
+        Ok((index.i(), index.j(), index.k()))
     }
 
     fn __repr__(&self) -> String {

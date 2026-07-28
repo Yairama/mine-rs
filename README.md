@@ -12,7 +12,7 @@ La apuesta no es empezar como otra suite minera cerrada, sino como una base reus
 
 > Lectura transversal de madurez: ver [`docs/references/maturity-matrix.md`](docs/references/maturity-matrix.md) para distinguir qué superficies ya deben leerse como SDK usable, cuáles siguen experimentales y cuáles son benchmark-side o de investigación.
 
-> Guardrail público de performance: ver [`docs/references/public-performance-baseline.md`](docs/references/public-performance-baseline.md) para la baseline de workflows públicos del SDK `alpha`, separada del material benchmark-side de diagnóstico y comparabilidad.
+> Guardrail público de performance: ver [`docs/references/public-performance-baseline.md`](docs/references/public-performance-baseline.md). Hoy documenta el workflow a medir y cómo interpretar regresiones; la baseline cuantitativa versionada sigue pendiente (MR-229).
 
 ## Qué estamos construyendo
 
@@ -72,16 +72,14 @@ La oportunidad de `mine-rs` no está en copiar una suite cerrada pantalla por pa
 ```text
 Rust Core
 ↓
-Python Bindings
-↓
-Agentic Layer
+Python SDK / Tools deterministas
 ↓
 CLI / Notebooks / Automation
 ↓
 UI futura opcional
 ```
 
-La capa agentica futura estará inspirada en `github.com/langchain-ai/deep-agents-from-scratch/`, con VFS, task tools, subagents especializados y contratos estructurados. Aun así, los agentes no deberían ejecutar lógica minera de forma implícita: deben llamar tools del SDK y producir artefactos verificables.
+La capa agentica está explícitamente pospuesta y no está implementada. Su eventual desarrollo, inspirado en `github.com/langchain-ai/deep-agents-from-scratch/`, deberá esperar a que se estabilicen las tools, la superficie Python, los contratos de artefactos/VFS y la disciplina de releases. Cuando exista, los agentes no deberán ejecutar lógica minera de forma implícita: llamarán tools del SDK y producirán artefactos verificables.
 
 ## Capacidades objetivo
 
@@ -114,12 +112,15 @@ Ese orden es intencional: primero cálculo confiable y contratos sólidos; despu
 
 ## Workflow Python recomendado hoy
 
-Hoy el camino público soportado para usuarios Python debe entenderse como:
+Hoy la raíz `miners` es la superficie Python alpha recomendada y soporta:
 
-1. `load_from_pandas(...)` o `load_from_numpy(...)`
-2. `validate()`
-3. `summary()` / `basic_statistics()` / `grouped_statistics()` / `grade_tonnage()`
-4. `export_to_pandas(...)` o `export_to_numpy(...)`
+1. cargar con `read_csv(...)`, `read_parquet(...)`, `load_from_pandas(...)` o `load_from_numpy(...)`;
+2. convertir índices y coordenadas con `GridDefinition.xyz_to_ijk(...)`, `ijk_to_xyz(...)`, `ijk_to_linear(...)` y `linear_to_ijk(...)`;
+3. validar y analizar con `validate()`, `summary()`, `basic_statistics()`, `grouped_statistics()` y `grade_tonnage()`;
+4. cambiar resolución con `AggregationRule` + `superblock(...)` o `DistributionRule` + `subblock(...)`;
+5. exportar con `write_csv(...)`, `write_parquet(...)`, `export_to_pandas(...)` o `export_to_numpy(...)`.
+
+Para automatización, `miners.tools` expone mediante import explícito `inspect_model`, `validate_model`, `query_blocks`, `aggregate_blocks`, `grade_tonnage`, `create_scenario`, `evaluate_scenario` y `compare_scenarios`. Sus respuestas son contratos estructurados serializables; esta superficie no implica que exista una capa agentica.
 
 Ejemplo ejecutable del workflow actual:
 
@@ -215,19 +216,19 @@ La fundación del workspace ya reserva el set base de dependencias para las sigu
 | `parquet` | IO columnar abierto para datasets y artefactos reproducibles. |
 | `nalgebra` | Geometría, rotaciones y primitivas matemáticas espaciales. |
 | `pyo3` | Bindings Rust ↔ Python sin duplicar lógica minera. |
-| `maturin` | Tooling externo para compilar y empaquetar `mine-python` cuando se habilite la superficie Python real. |
+| `maturin` | Backend de build actual para compilar e instalar el binding nativo `mine-python`, incluido el flujo editable de CI. |
 
-## Uso esperado a futuro
+## Uso Python y dirección futura
 
-La experiencia objetivo de mediano plazo desde Python será similar a trabajar con una librería técnica más amplia que el workflow público actual:
+La lectura de Parquet ya forma parte de la superficie actual; la API de planning encadenada del ejemplo sigue siendo solo dirección futura:
 
 ```python
-# Ejemplo conceptual: no representa el camino público recomendado hoy.
-from miners import BlockModel
+# `read_parquet` es actual; `model.plan.sequence` todavía es conceptual.
+from miners import read_parquet
 
-model = BlockModel.read_parquet("block_model.parquet")
+model = read_parquet("block_model.parquet")
 report = model.validate()
-curve = model.grade_tonnage(grade="cu", tonnage="tonnes")
+curve = model.grade_tonnage("cu", "tonnes", [0.3, 0.5, 0.7])
 
 scenario = model.plan.sequence(
     bench_height=10,
@@ -239,7 +240,7 @@ Este ejemplo representa la intención de diseño: APIs legibles, reproducibles y
 
 ## Relación con agentes
 
-Sobre el SDK se planea construir un sistema agentico capaz de recibir un modelo de bloques, inspeccionarlo, crear tareas, delegar a subagents y ejecutar tools del SDK para producir reportes, escenarios y artefactos persistentes.
+Sobre el SDK se planea construir, más adelante, un sistema agentico capaz de recibir un modelo de bloques, inspeccionarlo, crear tareas, delegar a subagents y ejecutar tools del SDK para producir reportes, escenarios y artefactos persistentes. No está implementado y permanece pospuesto bajo las dependencias indicadas en la sección de arquitectura.
 
 La regla central es:
 
@@ -255,7 +256,7 @@ Actualmente el repositorio ya cuenta con:
 - workspace Rust inicial;
 - crates base `mine-core`, `mine-blockmodel`, `mine-indexing`, `mine-io`, `mine-economics`, `mine-validation`, `mine-reblock`, `mine-planning`, `mine-sdk`, `mine-tools` y `mine-python`;
 - packaging Python base con `maturin`;
-- bindings Python ejecutables para `Coordinate3D`, `BlockDimensions`, `GridDefinition`, `ColumnSchema`, `BlockModel`, `ModelSummary`, `ValidationReport` y analytics base;
+- bindings Python ejecutables para tipos core, `BlockModel`, summaries, validación y analytics base, más indexing de `GridDefinition`, IO CSV/Parquet y reblocking con reglas declarativas;
 - value objects fundacionales de core (`MineError`, IDs, coordenadas, grilla, metadata y schema);
 - un `BlockModel` en memoria con storage columnar inicial, selección de columnas, filtros básicos y una layout experimental sparse basada en índices lineales materializados;
 - un crate `mine-indexing` con conversiones `xyz ↔ ijk`, indexación lineal y vecindad 6/18/26 con filtro sparse opcional, incluyendo soporte de rotación en XY para grillas regulares.
@@ -272,6 +273,9 @@ Actualmente el repositorio ya cuenta con:
 - analytics base en Rust para `BlockModel`: estadísticas básicas, agregación por grupos y curva ley-tonelaje con cutoffs explícitos, ya expuestos también en Python.
 - un frente inicial de estimación en `mine-blockmodel` con compositing determinista, auditoría de dominios, declustering, histogramas ponderados, variografía experimental, fitting de modelos variográficos autorizados (`nugget`, `spherical`, `exponential`, `gaussian`), una API de neighborhoods/passes con anisotropía explícita, estimadores puntuales base (`nearest neighbour` e `inverse distance weighting`) y kriging puntual (`ordinary` y `simple`) con pesos y varianzas serializables.
 - interoperabilidad `pandas` y `numpy` inicial en Python para cargar modelos con `load_from_pandas(...)` / `load_from_numpy(...)` y exportarlos con `export_to_pandas(...)` / `export_to_numpy(...)`; hoy estos puentes priorizan seguridad y simplicidad, por lo que pueden copiar datos entre Rust y Python.
+- IO Python en la raíz `miners` con `read_csv(...)`, `write_csv(...)`, `read_parquet(...)` y `write_parquet(...)`; CSV exige grilla/schema explícitos al leer y actualmente rechaza escritura de layouts sparse para no prometer un roundtrip falso, mientras Parquet preserva grilla, schema y metadata.
+- indexing Python directamente en `GridDefinition` mediante `xyz_to_ijk(...)`, `ijk_to_xyz(...)`, `ijk_to_linear(...)` y `linear_to_ijk(...)`.
+- reblocking Python mediante `AggregationRule` / `DistributionRule` y `superblock(...)` / `subblock(...)`, ejecutado por el core Rust con validaciones de semántica minera para variables intensivas y conservativas.
 - una API Python experimental `miners.experimental.experimental_workflow(...)` que encadena validación, summary, estadísticas, grouped statistics, curva ley-tonelaje y export a pandas sin ocultar columnas críticas; queda marcada como wrapper experimental separado de la superficie recomendada en la raíz `miners`.
 - un crate `mine-planning` con generación determinista de bancos, phase tagging, `MiningScenario` serializable, `PrecedenceGraph` acíclico y `Schedule` mínimo con restricciones básicas de tonelaje y avance vertical.
 - un prototipo experimental de pushbacks en `mine-planning` derivado desde `Schedule` mediante `build_pushback_prototype(...)`, agrupando por fase y explicitando limitaciones y siguientes pasos sin prometer optimización.
@@ -337,20 +341,26 @@ cargo run --release -p marvin-benchmark --bin pcpsp_toposort -- [--include-full]
 cargo run --release -p marvin-benchmark --bin pcpsp_bound -- [--include-full]
 ```
 
-Los cuatro últimos bins versionan reportes con telemetría de runtime por etapa (MR-215):
+Los cuatro últimos bins generan localmente reportes con telemetría de runtime por etapa (MR-215). Esos reportes bajo `datasets/benchmarks/outputs/` no están rastreados por Git y no forman parte de un checkout limpio:
 
 - `upit_runtime` (MR-209) mide el solver exacto de UPIT (Dinic) sobre `marvin`, `mclaughlin-limit` y, con `--include-full`, sobre `mclaughlin` completo (2.14M bloques / 73.1M aristas), comparando el valor del pit contra el objetivo oficial MineLib. Reporte: `datasets/benchmarks/outputs/upit-runtime-report.json`. Estado actual: paridad exacta en las tres instancias.
-- `cpit_toposort` (MR-211) construye un candidato CPIT propio con la heurística TopoSort core (`solve_cpit_with_toposort`, Chicoisne et al. 2012, doi 10.1287/opre.1120.1072) ordenada por el tiempo esperado de extracción de la relajación LP staged (`*.LPcpit`), audita recursos y precedencias, y compara contra el best-known staged 2012. Reporte: `datasets/benchmarks/outputs/cpit-toposort-report.json`. Estado actual: la variante con retraso de estéril supera el incumbent staged en las tres instancias y queda a 0.2–3.7% del bound LP publicado; el bound LP propio sigue pendiente (MR-213).
+- `cpit_toposort` (MR-211) construye un candidato CPIT propio con la heurística TopoSort core (`solve_cpit_with_toposort`, Chicoisne et al. 2012, doi 10.1287/opre.1120.1072) ordenada por el tiempo esperado de extracción de la relajación LP staged (`*.LPcpit`), audita recursos y precedencias, y compara contra el best-known staged 2012. Reporte local: `datasets/benchmarks/outputs/cpit-toposort-report.json`. Estado medido: la variante con retraso de estéril supera el incumbent staged en las tres instancias y queda a 0.2–3.7% del bound LP publicado; apretar la convergencia del bound propio sigue pendiente (MR-213).
 - `pcpsp_toposort` (MR-212) extiende la heurística al caso multi-destino PCPSP con decisión de destino durante la construcción (`solve_pcpsp_with_toposort`: valor descontado máximo entre pares destino/periodo factibles, de modo que el mineral espera capacidad de planta en vez de perder valor en botadero). Reporte: `datasets/benchmarks/outputs/pcpsp-toposort-report.json`. Estado actual: Marvin 829.5M (gap 6.37% vs 886.0M oficial, cumpliendo los dos primeros hitos de MR-212; el candidato exploratorio anterior quedaba en 664.2M / 25%), McLaughlin Limit 1,072.5M (gap 18.85% con ordering proxy `LPcpit` documentado).
 - `pcpsp_bound` (MR-213) calcula bounds superiores propios con la relajación Lagrangiana de capacidades del core (`compute_pcpsp_lagrangian_bound`): el subproblema interno es un max-closure exacto tiempo-expandido con el 100% de las precedencias en cada iteración (sin checkpoints parciales; Geoffrion 1974, Dagdelen & Johnson 1986), y deriva además candidatos TopoSort **self-contained** ordenados por la propia relajación, sin consumir las relajaciones LP staged de MineLib. Reporte: `datasets/benchmarks/outputs/pcpsp-bound-report.json`. Estado actual: bounds Marvin +16.9%/+15.2% (120 iteraciones, ~4.7 s/iter con el Dinic denso interno) y McLaughlin Limit +4.0%/+6.8% (12 iteraciones) sobre los LP oficiales (gap dual restante por presupuesto finito de subgradiente, declarado en el artefacto; el resultado expone `best_multipliers` para warm-start); el candidato CPIT self-contained de Marvin (841.6M, LP gap 2.59%) supera al candidato con ordering LP staged.
 
-La fuente canónica única del estado de paridad contra la literatura vive en `docs/references/literature-parity.md` (MR-217); README y diagnóstico solo la apuntan, y la tabla se valida automáticamente contra los reportes JSON con `cargo test -p marvin-benchmark --test literature_parity`.
+La tabla documental del estado de paridad vive en `docs/references/literature-parity.md` (MR-217). Su contraste contra los reportes JSON es una verificación local opt-in: primero deben generarse los reportes con los bins anteriores y luego ejecutarse `cargo test -p marvin-benchmark --test literature_parity -- --ignored`; estos tests se ignoran por defecto porque los reportes no están rastreados por Git.
+
+Los tests que requieren datasets externos `mclaughlin-limit` o `mclaughlin` también se ignoran por defecto. Cuando esos assets existan en las rutas esperadas bajo `datasets/benchmarks/`, pueden ejecutarse con `cargo test -p marvin-benchmark --test benchmark_blocks -- --ignored` y `cargo test -p marvin-benchmark --test minelib_scheduling_support -- --ignored`. El checkout limpio no incluye esos datasets.
+
+`cargo test -p marvin-benchmark -- --ignored` habilita además integraciones benchmark-side pesadas, como la construcción completa del sidecar LP/BZ de Marvin. Esas pruebas se mantienen fuera del gate ordinario para no convertir la CI del SDK en un workload de decenas de minutos.
 
 Para estos bins benchmark-side, la política de rutas es explícita: los datasets/references/outputs por defecto salen desde la raíz del repo, las rutas absolutas CLI se respetan tal cual y cualquier ruta relativa provista por CLI se rebasea también contra la raíz del repo para que los comandos documentados funcionen igual desde el workspace root.
 
 El estado actual de paridad del benchmark Marvin queda versionado en `datasets/benchmarks/marvin/outputs/parity-report.json`, y la comparación reproducible hoy disponible queda registrada en `datasets/benchmarks/marvin/outputs/comparison-report.json`.
 
 Cuando solo haga falta refrescar la evidencia LP/BZ de MR-187 sin ejecutar todas las baselines/sweeps pesadas, `marvin-benchmark` también acepta `--mode focused-mr187` (o `MARVIN_BENCHMARK_MODE=focused-mr187`) y escribe por defecto `datasets/benchmarks/marvin/outputs/mr187-focused-refresh-report.json`. Ese modo deja intacto el modo `full`, conserva los artefactos LP/BZ relevantes para backlog refresh, explicita cuándo neutraliza comparaciones no recalculadas para mantener la corrida acotada y ahora serializa las mismas superficies raíz de protocolo (identidad explícita + `benchmark_contract_audit`, `benchmark_contract_roles`, `diagnostics_schema`, `diagnostic_groups_present`) que usa la lectura comparativa del benchmark-side. Además, la procedencia paper-like de Marvin ya no se deja implícita como `cpit-solution`: los artefactos exponen un contrato benchmark-side explícito `shells -> pushbacks -> mining-cuts -> scheduling`, junto con el resumen de procedencia y los gaps de comparabilidad que todavía bloquean una clasificación `paper-comparable`.
+
+En esta sección, "versionar" campos dentro de un reporte significa serializar su schema y trazas, no rastrear el archivo generado en Git. Salvo `datasets/benchmarks/marvin/outputs/comparison-report.json` y `parity-report.json`, los reportes mencionados se generan localmente y no forman parte del checkout.
 
 La validación multi-mine actual del scheduler queda versionada en `datasets/benchmarks/outputs/multi-mine-scheduling-report.json` y ejecuta la misma ruta core (`SchedulingProblem` + `solve_decomposed_scheduling_problem`) sobre Marvin, `mclaughlin-limit` y la instancia local `mclaughlin-full`, con solo configuración explícita de columnas/recursos cuando MineLib cambia semánticas de dataset. Hoy la agregación intermedia ya no usa bandas fijas de 4 bancos: Marvin promueve como ruta primaria una familia acotada `nested-shell × bench` derivada de escenarios revenue/cost-aware con acceso `strict sequential`, y `mclaughlin-limit` ya promueve una ruta `nested-shell × bench` reconstruida desde `*.upit` + precedencias MineLib, expuesta explícitamente como proxy benchmark-side de shells -> fases shell×bench pushback-equivalent -> scheduling. `mclaughlin-full` queda separado como variante local de stress con fallback `reference-period × bench`, no como comparación literaria directa. El reporte deja explícito cuándo la corrida usa la variante bibliográfica `mclaughlin-limit` y cuándo usa la variante full local, declara la fuente exacta del conjunto de bloques que alimenta al scheduler, publica `selected_block_provenance_summary` + `selected_block_provenance_chain` para distinguir la cadena Marvin `shells -> pushbacks -> mining-cuts -> scheduling` del contrato equivalente benchmark-side que ahora declara `mclaughlin-limit`, y ahora además versiona `primary_unit_family_traceability` para cuantificar el puente `selected blocks -> phase-plan proxy -> scheduling units` junto con evidencia estructurada `benchmark_side_evidence` para dejar explícito si la ruta activa ya tiene mining-cut benchmark-side y/o sidecar LP/BZ o si todavía se queda en la familia shell×bench proxy. En Marvin, el probe competitivo LP/BZ ya no deja el gap solo como una lectura cualitativa: ahora clasifica el bloqueo dominante entre `precedence-coverage`, `budget-depletion`, `round-repair-local-search-mismatch` y `schedule-level-proof-only`, publica además un `budget_coverage_experiment` auditable para distinguir si conviene priorizar expansión de cobertura, de presupuesto o si ninguno domina, y mantiene `parity_claim_status = diagnostic-only` hasta que exista evidencia reproducible de competitividad real. En `mclaughlin-limit`, ese bloque benchmark-side ya no queda solo en readiness/scaffold: además de la traza `pushback-equivalent-bench-cut-readiness`, el reporte ahora versiona un contrato explícito de benchmark-side mining-cut refinement (`mclaughlin-limit-pushback-bench-localized-mining-cuts` / build `front3-ar2.0-span2-n6-limit`) sobre la familia `shell × bench`, manteniendo el scope `mclaughlin-limit-only` y dejando explícito que sigue siendo una capa benchmark-side, no un generador paper-grade compartido. El scaffold `mclaughlin-limit-cut-sidecar-scaffold` se conserva para preparar las promociones futuras del sidecar LP/BZ, junto con prerequisitos estructurados (`benchmark_cut_prerequisites`, `lp_bz_sidecar_prerequisites`), `benchmark_cut_promotion_ready`, `lp_bz_sidecar_promotion_ready`, `*_blocking_prerequisite_ids`, reglas explícitas de evaluación (`benchmark_cut_promotion_rule`, `lp_bz_sidecar_promotion_rule`) y listas auditables (`benchmark_cut_exit_criteria`, `lp_bz_sidecar_exit_criteria`). Esa misma ruta ya puede además publicar un primer sidecar LP/BZ parcial y auditable sobre el kernel relajado `shell × bench`, restringido explícitamente a `mclaughlin-limit-only`, con `solve_status`, `coverage_completeness`, `coverage_basis_points` y gaps de relajación; ese bound sigue siendo `diagnostic-only`, pero el contrato benchmark-side ya distingue expresamente el escalón intermedio `partial-bound-available` antes de cualquier promoción más fuerte. Ese camino también queda resumido en `mclaughlin_limit_promotion_checklist` (`mr207-v4`) para dejar explícito qué parte ya está auditada, qué sigue `scaffold-only`, qué regla bloquea cada promoción, qué exit criteria siguen pendientes y por qué `mclaughlin-full` sigue fuera como stress-only. El reporte incluye drift temporal candidato-vs-referencia por bloque, versiona una baseline `cpit-period-routed` para separar el gap de ruteo/destino del gap temporal del solver y además expone las relajaciones LP staged (`LPcpit` / `LPpcpsp`) cuando están disponibles en el dataset. Cada corrida sigue clasificada como **paper-comparable** o **exploratoria** según el pipeline realmente ejecutado.
 
@@ -360,27 +370,28 @@ Los artefactos externos/versionados de Marvin viven en `datasets/benchmarks/marv
 
 La base del packaging Python ya usa Maturin y expone el paquete `miners` desde `python/miners`.
 
-El contrato local soportado para contributors es deliberadamente pequeño y explícito:
+El contrato local soportado para contributors replica el job Python de CI:
 
 1. crear un `venv` limpio con Python `>=3.11`;
-2. actualizar `pip` e instalar `maturin` dentro de ese entorno;
-3. ejecutar `maturin develop` desde la raíz del repo;
-4. correr la suite `unittest` pública del paquete Python.
+2. actualizar `pip` e instalar el proyecto en editable con el extra `test`;
+3. verificar el contrato de tipos con `mypy` y `stubtest`;
+4. correr la suite pública con `pytest`.
 
 Ese camino valida, sin depender de conocimiento tribal, que:
 
 - `crates/mine-python` compila e instala el módulo nativo dentro del `venv`;
 - `python/miners` queda importable como `miners` con las dependencias mínimas declaradas hoy (`numpy` y `pandas`);
-- la superficie pública base del SDK Python sigue viva para el workflow recomendado `load -> validate -> analyze -> export`.
+- la superficie pública base del SDK Python sigue viva para IO/pandas/numpy, indexing, validación/analytics, reblocking y exportación.
 
-Hoy este es el flujo soportado para desarrollo local. No reemplaza todavía una disciplina completa de wheels y releases ni adelanta el trabajo futuro de `miners.tools`.
+Hoy este es el flujo soportado para desarrollo local y CI. La instalación editable invoca Maturin mediante el backend declarado en `pyproject.toml`; no requiere instalar `maturin` por separado. No equivale todavía a construir/publicar wheels ni a una disciplina de releases completa.
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python -m pip install --upgrade pip
-.\.venv\Scripts\python -m pip install maturin
-.\.venv\Scripts\python -m maturin develop
-.\.venv\Scripts\python -m unittest discover -s tests -p "test_python_*.py"
+.\.venv\Scripts\python -m pip install --upgrade --editable ".[test]"
+.\.venv\Scripts\python -m mypy --strict --no-incremental tests/typecheck_python_public.py
+.\.venv\Scripts\python -m mypy.stubtest miners
+.\.venv\Scripts\python -m pytest tests
 ```
 
 El paquete local ya expone una superficie Python mínima usable:
@@ -424,7 +435,7 @@ Usa esta referencia rápida para ubicar cada cambio en la capa correcta:
 | `crates/mine-tools` | Tools deterministas con contratos serializables para automatización. |
 | `crates/mine-python` | Binding nativo PyO3/Maturin; no debe contener lógica minera crítica. |
 | `python/miners` | Ergonomía Python, type hints y reexports para usuarios finales. |
-| `python/mine-agents` | Orquestación agentica Python-first encima del SDK y de `mine-tools`. |
+| `python/mine-agents` | Ubicación objetivo, todavía no implementada, para orquestación agentica Python-first encima del SDK y de `mine-tools`. |
 
 Reglas prácticas:
 
